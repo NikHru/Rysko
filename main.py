@@ -1,34 +1,38 @@
 import flet as ft
-import flet.canvas as cv
-import math
+import logging as loglib
+import tool_manager
+import canvas_manager
+
+logger = loglib.getLogger("main")
 
 def main(page : ft.Page):
-    stroke_paint = ft.Paint(stroke_width=2, style=ft.PaintingStyle.STROKE, color=ft.Colors.WHITE)
-    fill_paint = ft.Paint(style=ft.PaintingStyle.FILL, color=ft.Colors.BLUE)
-    canvas = cv.Canvas(
-        width=float("inf"),
-        expand=True,
-        shapes=[]
-    )
-    def on_click(e : ft.TapEvent):
-        canvas.shapes.append(cv.Rect(
-            x=e.local_position.x,
-            y=e.local_position.y,
-            width=100,
-            height=100
-        ))
-    canvas_gesture_detector = ft.GestureDetector(
-        mouse_cursor=ft.MouseCursor.CLICK,
-        on_tap=on_click
-    )
-    canvas.content = canvas_gesture_detector
+    # initialize submodules
+    tool_manager.register_tools_from_directory()
 
-    tool_bar = ft.NavigationBar()
-    page.add(
-        ft.SafeArea(
-            content=canvas
-        )
+    # creating canvas
+    canvas = canvas_manager.TechnicalDrawingCanvas()
+
+    # creating toolbar
+    toolbar = tool_manager.Toolbar(
+        "general_toolbars/main_technical_toolbar.json",
+        canvas
     )
+
+    # configure page
+    page.title = "Rysko"
+    page.padding = 0
+    page.theme_mode = ft.ThemeMode.DARK
+    page.theme = ft.Theme(
+        color_scheme_seed=ft.Colors.BLUE,
+    )
+    page.add(ft.Column(
+        controls=[toolbar, canvas],
+        spacing=0,
+        expand=True
+    ))
 
 if __name__ == "__main__":
+    # configure logger
+    loglib.basicConfig(filename="rysko.log", filemode="w", level=loglib.INFO)
+    # run
     ft.run(main)

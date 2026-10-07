@@ -1,2 +1,5 @@
 .flet
 .idea
+rysko.log
+colors_dev.py
+__pycache__*
