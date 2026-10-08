@@ -1,6 +1,12 @@
 # Rysko
-Pixel & technical drawing app.
+Applikácia na pixel-art & rysovanie.<br>
+*Pixel-art & technical drawing app.*
 
-Documentation comming soom™
+## Inštalácia
+**Pripravený `Rysko.exe` súbor si stiahnite z priečinka `dist`**, nič iné sťahovať nemusíte.
 
+## Dokumentácia
+Dokumentácia comming soon™
+
+<br><br><br>
 *Tymofii ani sa tohoto nechitaj!*

@@ -4,35 +4,60 @@ import pathlib
 import logging as loglib
 import utils
 import json
+import importlib
 from enum import Enum
 from canvas_manager import DrawingCanvas
 from elements import ToggleIconButton
+logger = loglib.getLogger("main")
 
 TOOLBAR_HEIGHT = 35
 TOOLBAR_ICON_NORM_SCALE_HEIGHT = 30
 
-logger = loglib.getLogger("main")
-
-registered_tools : dict[str, type["DrawingTool"]] = {}
-def register_tool(tool_file_path : pathlib.Path):
-    if not tool_file_path.is_file():
-        raise ValueError(f"Invalid tool file path {tool_file_path}.")
-    if tool_file_path.name in registered_tools:
-        logger.warning(f"DrawingTool under the name \"{utils.filename(tool_file_path)}\" duplicate registry attempt")
+registered_tools : dict[str, type["CanvasTool"]] = {}
+def register_tool(name : str, tool_pack_name : str):
+    tool_import_path = f"tool_packs.{tool_pack_name}.{name}"
+    if name in registered_tools:
+        logger.warning(f"DrawingTool under the import path \"{tool_import_path}\" duplicate registry attempt")
     else:
-        module = utils.import_module_by_path(tool_file_path)
-        if "Tool" not in dir(module) or not issubclass(module.Tool, DrawingTool):
-            raise ValueError(f"No or invalid Tool class in tool file \"{tool_file_path.name}\"")
-        registered_tools[utils.filename(tool_file_path)] = module.Tool
-def register_tools_from_directory(tool_dir_name:str="drawing_tools"):
-    tool_dir_path = pathlib.Path(__file__).resolve().parent / tool_dir_name
-    if not tool_dir_path.is_dir():
-        raise ValueError("Invalid tool directory path")
-    for tool_file_path in tool_dir_path.glob("*_tool.py"):
         try:
-            register_tool(tool_file_path)
-        except (ImportError, ModuleNotFoundError, ValueError) as e:
-            logger.error(f"Failed to load DrawingTool \"{tool_file_path.name}\"", exc_info=e)
+            module = importlib.import_module(tool_import_path)
+            if "Tool" not in dir(module) or not issubclass(module.Tool, DrawingTool):
+                raise ValueError(f"No or invalid Tool class in tool file under import path \"{tool_import_path}\"")
+            registered_tools[name] = module.Tool
+        except (ModuleNotFoundError, ImportError):
+            raise ValueError(f"Invalid tool import path \"{tool_import_path}\"")
+def register_tools_from_pack(tool_pack_name : str):
+    pack_assets_dir = utils.get_assets_path() / "tool_packs" / tool_pack_name
+    if not pack_assets_dir.is_dir():
+        raise ValueError("Invalid tool pack name")
+    try:
+        importlib.import_module(f"tool_packs.{tool_pack_name}")
+    except (ModuleNotFoundError, ImportError):
+        raise ValueError("Invalid tool pack name")
+    for tool_assets_dir in pack_assets_dir.iterdir():
+        if tool_assets_dir.is_dir():
+            try:
+                register_tool(tool_assets_dir.name, tool_pack_name)
+            except ValueError as e:
+                logger.error(f"Failed to load DrawingTool at import path \"tool_packs.{tool_pack_name}.{tool_assets_dir.name}\"", exc_info=e)
+
+class CanvasTool:
+    name : str
+    icon_src : ft.IconData | str
+    def __init__(self):
+        pass
+    def click(self, event : ft.TapEvent[ft.GestureDetector]):
+        pass
+    def move(self, event : ft.PointerEvent[ft.GestureDetector]):
+        pass
+class DrawingTool(CanvasTool):
+    previewing : bool = False
+    def click(self, event : ft.TapEvent[ft.GestureDetector]) -> list[fcv.Shape] | None:
+        return None
+    def cancel(self):
+        self.previewing = False
+    def finalize(self) -> "FinalizedShapes | None":
+        return None
 
 class ToolStatusMessageType(Enum):
     INFO = 1
@@ -46,25 +71,11 @@ class FinalizedShapes:
         self.shapes = shapes
         self.status_message = message
         self.status_message_type = message_type
-class DrawingTool:
-    name : str
-    icon : ft.IconDataOrControl
-    previewing : bool = False
-    def __init__(self):
-        pass
-    def click(self, event : ft.TapEvent[ft.GestureDetector]) -> list[fcv.Shape] | None:
-        return None
-    def cancel(self):
-        self.previewing = False
-    def finalize(self) -> FinalizedShapes | None:
-        return None
-    def move(self, event : ft.PointerEvent[ft.GestureDetector]):
-        pass
 
 class ToolButton(ToggleIconButton):
     tool_idx : int
     parent_toolbar : "Toolbar"
-    def __init__(self, tool_class : type[DrawingTool], tool_idx : int, toolbar : "Toolbar", icon_scale = 1):
+    def __init__(self, tool_class : type[CanvasTool], tool_idx : int, toolbar : "Toolbar", icon_scale = 1):
         super().__init__(
             icon_scale=icon_scale,
             style=ft.ButtonStyle(
@@ -73,7 +84,7 @@ class ToolButton(ToggleIconButton):
                 visual_density=ft.VisualDensity.COMPACT
             ),
             aspect_ratio = 1,
-            icon=tool_class.icon
+            icon=utils.icon_src_to_image(tool_class.icon_src, anti_alias=True)
         )
         self.parent_toolbar = toolbar
         self.tool_idx = tool_idx
@@ -95,9 +106,9 @@ class Toolbar(ft.Container):
     row_divider : ft.Divider
     tool_config_row : ft.Row
     loaded_config : str | None = None
-    loaded_tool_classes : list[type[DrawingTool]] = []
+    loaded_tool_classes : list[type[CanvasTool]] = []
     selected_tool_idx : int = -1
-    selected_tool : DrawingTool | None = None
+    selected_tool : CanvasTool | None = None
     selected_tool_preview_shapes : list[fcv.Shape] | None = None
     canvas : DrawingCanvas
     def __init__(self, config_str_path : str | None, canvas : DrawingCanvas):
@@ -164,7 +175,8 @@ class Toolbar(ft.Container):
             if tool_button.selected:
                 tool_button.set_selected(False)
             self.clear_selected_tool_preview()
-            self.selected_tool.cancel()
+            if isinstance(self.selected_tool, DrawingTool):
+                self.selected_tool.cancel()
             self.selected_tool = None
             self.selected_tool_idx = -1
     def select_tool(self, tool_idx : int):
@@ -174,7 +186,7 @@ class Toolbar(ft.Container):
             selected_tool = self.loaded_tool_classes[tool_idx]()
             self.selected_tool = selected_tool
     def finalize_selected_tool(self):
-        if self.selected_tool is not None:
+        if isinstance(self.selected_tool, DrawingTool):
             self.clear_selected_tool_preview()
             finalized_shapes = self.selected_tool.finalize()
             if finalized_shapes is not None:
@@ -184,7 +196,7 @@ class Toolbar(ft.Container):
                     self.canvas.add_shapes(finalized_shapes.shapes, preview=False)
             self.selected_tool = self.loaded_tool_classes[self.selected_tool_idx]() # discard old tool inst
     def _gesture_detector_tap(self, event : ft.TapEvent[ft.GestureDetector]):
-        if self.selected_tool is not None:
+        if isinstance(self.selected_tool, DrawingTool):
             preview_shapes = self.selected_tool.click(event)
             if self.selected_tool.previewing:
                 if preview_shapes is not None:
@@ -198,7 +210,7 @@ class Toolbar(ft.Container):
             else:
                 self.finalize_selected_tool()
     def _gesture_detector_secondary_tap(self):
-        if self.selected_tool is not None:
+        if isinstance(self.selected_tool, DrawingTool):
             if self.selected_tool.previewing:
                 self.clear_selected_tool_preview()
                 self.selected_tool.cancel()
@@ -209,7 +221,9 @@ class Toolbar(ft.Container):
         if self.selected_tool is not None:
             self.selected_tool.move(event)
 
-def get_tool_assets_path(tool_file_path : str) -> pathlib.Path:
-    return utils.get_assets_path() / "drawing_tools" / utils.filename(pathlib.Path(tool_file_path))
-def get_tool_icon(tool_file_path : str) -> ft.Image:
-    return ft.Image(f"drawing_tools/{utils.filename(pathlib.Path(tool_file_path))}/icon.png", anti_alias=True)
+def get_tool_assets_path(tool_file_path_str : str) -> pathlib.Path:
+    file_path = pathlib.Path(tool_file_path_str)
+    return utils.get_assets_path() / "tool_packs" / file_path.parent.name / utils.filename(file_path)
+def get_tool_icon_src(tool_file_path_str : str) -> str:
+    file_path = pathlib.Path(tool_file_path_str)
+    return f"tool_packs/{file_path.parent.name}/{utils.filename(file_path)}/icon.png"

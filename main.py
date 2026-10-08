@@ -7,7 +7,7 @@ logger = loglib.getLogger("main")
 
 def main(page : ft.Page):
     # initialize submodules
-    tool_manager.register_tools_from_directory()
+    tool_manager.register_tools_from_pack("technical_drawing_tools")
 
     # creating canvas
     canvas = canvas_manager.TechnicalDrawingCanvas()
@@ -20,6 +20,7 @@ def main(page : ft.Page):
 
     # configure page
     page.title = "Rysko"
+    page.window.icon = "icons/Rysko_logo.ico"
     page.padding = 0
     page.theme_mode = ft.ThemeMode.DARK
     page.theme = ft.Theme(
