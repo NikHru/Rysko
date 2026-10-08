@@ -1,1 +1,6 @@
-I like Napoleon Bonaparte i wanna tear his bone apart
+# Rysko
+Pixel & technical drawing app.
+
+Documentation comming soom™
+
+*Tymofii ani sa tohoto nechitaj!*
