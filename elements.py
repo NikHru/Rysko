@@ -17,7 +17,8 @@ class ToggleIconButton(ft.IconButton):
                  icon_scale : float = 1, **kwargs
     ):
         if "icon" in kwargs and isinstance(kwargs["icon"], ft.Image):
-            kwargs["icon"] = ft.Image(kwargs["icon"].src, color=self.norm_icon_color, anti_alias=True, scale=icon_scale) # create unique image instances
+            kwargs["icon"].color=self.norm_icon_color
+            kwargs["icon"].scale=icon_scale
         super().__init__(**kwargs)
         self.selected = False
         self.on_click = self._internal_event_handle
