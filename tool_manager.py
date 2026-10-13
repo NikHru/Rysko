@@ -6,8 +6,8 @@ import utils
 import json
 import importlib
 from enum import Enum
-from canvas_manager import DrawingCanvas
-from elements import ToggleIconButton
+from canvas_manager import DynamicDrawingCanvas, InfiniteDrawingCanvas
+from elements import ToggleIconButton, GestureDetectorCallbacks
 logger = loglib.getLogger("main")
 
 TOOLBAR_HEIGHT = 35
@@ -17,11 +17,11 @@ registered_tools : dict[str, type["CanvasTool"]] = {}
 def register_tool(name : str, tool_pack_name : str):
     tool_import_path = f"tool_packs.{tool_pack_name}.{name}"
     if name in registered_tools:
-        logger.warning(f"DrawingTool under the import path \"{tool_import_path}\" duplicate registry attempt")
+        logger.warning(f"CanvasTool under the import path \"{tool_import_path}\" duplicate registry attempt")
     else:
         try:
             module = importlib.import_module(tool_import_path)
-            if "Tool" not in dir(module) or not issubclass(module.Tool, DrawingTool):
+            if "Tool" not in dir(module) or not issubclass(module.Tool, CanvasTool):
                 raise ValueError(f"No or invalid Tool class in tool file under import path \"{tool_import_path}\"")
             registered_tools[name] = module.Tool
         except (ModuleNotFoundError, ImportError):
@@ -35,11 +35,11 @@ def register_tools_from_pack(tool_pack_name : str):
     except (ModuleNotFoundError, ImportError):
         raise ValueError("Invalid tool pack name")
     for tool_assets_dir in pack_assets_dir.iterdir():
-        if tool_assets_dir.is_dir():
+        if tool_assets_dir.is_dir() and not tool_assets_dir.name.startswith(("__", ".")):
             try:
                 register_tool(tool_assets_dir.name, tool_pack_name)
             except ValueError as e:
-                logger.error(f"Failed to load DrawingTool at import path \"tool_packs.{tool_pack_name}.{tool_assets_dir.name}\"", exc_info=e)
+                logger.error(f"Failed to load CanvasTool at import path \"tool_packs.{tool_pack_name}.{tool_assets_dir.name}\"", exc_info=e)
 
 class CanvasTool:
     name : str
@@ -110,16 +110,16 @@ class Toolbar(ft.Container):
     selected_tool_idx : int = -1
     selected_tool : CanvasTool | None = None
     selected_tool_preview_shapes : list[fcv.Shape] | None = None
-    canvas : DrawingCanvas
-    def __init__(self, config_str_path : str | None, canvas : DrawingCanvas):
+    canvas : DynamicDrawingCanvas | InfiniteDrawingCanvas
+    def __init__(self, config_str_path : str | None, canvas : DynamicDrawingCanvas | InfiniteDrawingCanvas):
         super().__init__(
             bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST,
             height=TOOLBAR_HEIGHT
         )
         self.canvas = canvas
-        self.canvas.gesture_detector.on_tap = self._gesture_detector_tap
-        self.canvas.gesture_detector.on_secondary_tap = self._gesture_detector_secondary_tap
-        self.canvas.gesture_detector.on_hover = self._gesture_detector_hover
+        self.canvas.gesture_detector.add_callback(GestureDetectorCallbacks.TAP, self._gesture_detector_tap)
+        self.canvas.gesture_detector.add_callback(GestureDetectorCallbacks.SECONDARY_TAP, self._gesture_detector_secondary_tap)
+        self.canvas.gesture_detector.add_callback(GestureDetectorCallbacks.HOVER, self._gesture_detector_hover)
 
         self.content = ft.Column()
         self.content.expand = True
@@ -167,8 +167,10 @@ class Toolbar(ft.Container):
             else:
                 logger.warning(f"No tool under the name \"{tool_name}\" is registered, parent config: {config_path}")
     def clear_selected_tool_preview(self):
-        if self.selected_tool is not None and self.selected_tool_preview_shapes is not None:
-            self.canvas.remove_shapes(self.selected_tool_preview_shapes, preview=True)
+        if self.selected_tool is not None:
+            self.canvas.drag_detector.primary_drag_enabled = True
+            if self.selected_tool_preview_shapes is not None:
+                self.canvas.remove_shapes(self.selected_tool_preview_shapes, preview=True)
     def clear_selected_tool(self):
         if self.selected_tool is not None:
             tool_button = self.toolbar_row.controls[self.selected_tool_idx]
@@ -199,6 +201,7 @@ class Toolbar(ft.Container):
         if isinstance(self.selected_tool, DrawingTool):
             preview_shapes = self.selected_tool.click(event)
             if self.selected_tool.previewing:
+                self.canvas.drag_detector.primary_drag_enabled = False
                 if preview_shapes is not None:
                     collected_preview_shapes = self.selected_tool_preview_shapes
                     if collected_preview_shapes is not None:
@@ -209,7 +212,7 @@ class Toolbar(ft.Container):
                     self.canvas.add_shapes(preview_shapes, preview=True)
             else:
                 self.finalize_selected_tool()
-    def _gesture_detector_secondary_tap(self):
+    def _gesture_detector_secondary_tap(self, *_):
         if isinstance(self.selected_tool, DrawingTool):
             if self.selected_tool.previewing:
                 self.clear_selected_tool_preview()
