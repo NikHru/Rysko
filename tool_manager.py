@@ -1,17 +1,14 @@
-import flet.canvas as fcv
 import flet as ft
 import pathlib
 import logging as loglib
 import utils
 import json
 import importlib
+import canvas_manager
 from enum import Enum
-from canvas_manager import DynamicDrawingCanvas, InfiniteDrawingCanvas
-from elements import ToggleIconButton, GestureDetectorCallbacks
+from elements import ToggleIconButton, GestureDetectorCallbacks, ribbon_bar_height, RIBBON_BAR_ICON_NORM_SCALE_HEIGHT
+from canvas_shapes import VectorShape
 logger = loglib.getLogger("main")
-
-TOOLBAR_HEIGHT = 35
-TOOLBAR_ICON_NORM_SCALE_HEIGHT = 30
 
 registered_tools : dict[str, type["CanvasTool"]] = {}
 def register_tool(name : str, tool_pack_name : str):
@@ -52,10 +49,12 @@ class CanvasTool:
         pass
 class DrawingTool(CanvasTool):
     previewing : bool = False
-    def click(self, event : ft.TapEvent[ft.GestureDetector]) -> list[fcv.Shape] | None:
+    def click(self, event : ft.TapEvent[ft.GestureDetector]) -> list[VectorShape] | None:
         return None
     def cancel(self):
         self.previewing = False
+    def move(self, event : ft.PointerEvent[ft.GestureDetector]) -> list[VectorShape] | None:
+        pass
     def finalize(self) -> "FinalizedShapes | None":
         return None
 
@@ -64,10 +63,10 @@ class ToolStatusMessageType(Enum):
     WARNING = 2
     ERROR = 3
 class FinalizedShapes:
-    shapes : list[fcv.Shape] | None
+    shapes : list[VectorShape] | None
     status_message : str | None
     status_message_type : ToolStatusMessageType = ToolStatusMessageType.INFO
-    def __init__(self, shapes : list[fcv.Shape] | None = None, message : str | None = None, message_type : ToolStatusMessageType = ToolStatusMessageType.INFO):
+    def __init__(self, shapes : list[VectorShape] | None = None, message : str | None = None, message_type : ToolStatusMessageType = ToolStatusMessageType.INFO):
         self.shapes = shapes
         self.status_message = message
         self.status_message_type = message_type
@@ -109,12 +108,12 @@ class Toolbar(ft.Container):
     loaded_tool_classes : list[type[CanvasTool]] = []
     selected_tool_idx : int = -1
     selected_tool : CanvasTool | None = None
-    selected_tool_preview_shapes : list[fcv.Shape] | None = None
-    canvas : DynamicDrawingCanvas | InfiniteDrawingCanvas
-    def __init__(self, config_str_path : str | None, canvas : DynamicDrawingCanvas | InfiniteDrawingCanvas):
+    selected_tool_preview_shapes : list[VectorShape] | None = None
+    canvas : canvas_manager.StaticDrawingCanvas
+    def __init__(self, config_str_path : str | None, canvas : canvas_manager.StaticDrawingCanvas):
         super().__init__(
             bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST,
-            height=TOOLBAR_HEIGHT
+            height=ribbon_bar_height.reference(self, "height")
         )
         self.canvas = canvas
         self.canvas.gesture_detector.add_callback(GestureDetectorCallbacks.TAP, self._gesture_detector_tap)
@@ -155,7 +154,7 @@ class Toolbar(ft.Container):
         if self.loaded_config is not None:
             self.clear_config()
         self.loaded_config = config_str_path
-        icon_scale : float = self.height / TOOLBAR_ICON_NORM_SCALE_HEIGHT
+        icon_scale : float = self.height / RIBBON_BAR_ICON_NORM_SCALE_HEIGHT
         tool_idx = 0
         for tool_name in tool_list:
             if tool_name in registered_tools:
@@ -168,7 +167,6 @@ class Toolbar(ft.Container):
                 logger.warning(f"No tool under the name \"{tool_name}\" is registered, parent config: {config_path}")
     def clear_selected_tool_preview(self):
         if self.selected_tool is not None:
-            self.canvas.drag_detector.primary_drag_enabled = True
             if self.selected_tool_preview_shapes is not None:
                 self.canvas.remove_shapes(self.selected_tool_preview_shapes, preview=True)
     def clear_selected_tool(self):
@@ -199,9 +197,9 @@ class Toolbar(ft.Container):
             self.selected_tool = self.loaded_tool_classes[self.selected_tool_idx]() # discard old tool inst
     def _gesture_detector_tap(self, event : ft.TapEvent[ft.GestureDetector]):
         if isinstance(self.selected_tool, DrawingTool):
+            event.local_position = self.canvas.mouse_to_canvas_pos(event.local_position or ft.Offset())
             preview_shapes = self.selected_tool.click(event)
             if self.selected_tool.previewing:
-                self.canvas.drag_detector.primary_drag_enabled = False
                 if preview_shapes is not None:
                     collected_preview_shapes = self.selected_tool_preview_shapes
                     if collected_preview_shapes is not None:
@@ -221,8 +219,12 @@ class Toolbar(ft.Container):
             else:
                 self.clear_selected_tool()
     def _gesture_detector_hover(self, event : ft.PointerEvent[ft.GestureDetector]):
-        if self.selected_tool is not None:
-            self.selected_tool.move(event)
+        if isinstance(self.selected_tool, DrawingTool):
+            event.local_position = self.canvas.mouse_to_canvas_pos(event.local_position)
+            changed_shapes = self.selected_tool.move(event)
+            if changed_shapes is not None:
+                for shape in changed_shapes:
+                    self.canvas.translate_shape(shape)
 
 def get_tool_assets_path(tool_file_path_str : str) -> pathlib.Path:
     file_path = pathlib.Path(tool_file_path_str)

@@ -2,8 +2,11 @@ import flet as ft
 from typing import Callable, NoReturn
 from enum import Enum
 from inspect import iscoroutinefunction
-from pynput.mouse import Button as MouseButton
-from pynput.mouse import Controller as MouseController
+from utils import ValueRef
+
+DEFAULT_RIBBON_BAR_HEIGHT : int = 35
+RIBBON_BAR_ICON_NORM_SCALE_HEIGHT : int = 30
+ribbon_bar_height : ValueRef[int] = ValueRef[int](DEFAULT_RIBBON_BAR_HEIGHT)
 
 class ToggleIconButton(ft.IconButton):
     norm_color : ft.Colors = ft.Colors.TRANSPARENT
@@ -61,6 +64,177 @@ class ToggleIconButton(ft.IconButton):
                 self.icon.color = self.norm_icon_color
         if self.parent is not None:
             self.update()
+class ScaledText(ft.Text):
+    norm_height : int
+    norm_size : int
+    min_aspect_ratio : float | None
+    min_character_count : int | None
+    aspect_ratio_increase : float | None = None
+    aspect_ratio_decrease_interval : float | None
+    prev_character_count : int = 0
+    def __init__(
+            self, norm_height : int, norm_size : int, *text_args, min_aspect_ratio : float | None = None, aspect_ratio_increase : float | None = None,
+            min_char_count : int | None = None, aspect_ratio_decrease_interval : float | None = None, **text_kwargs
+    ):
+        super().__init__(*text_args, **text_kwargs)
+        self.min_aspect_ratio = min_aspect_ratio
+        self.min_character_count = min_char_count
+        self.aspect_ratio_increase = aspect_ratio_increase
+        self.aspect_ratio_decrease_interval = aspect_ratio_decrease_interval
+        self.aspect_ratio = self.min_aspect_ratio
+        self.norm_height = norm_height
+        self.norm_size = norm_size
+        self.on_size_change = self._size_changed
+    def _size_changed(self, event : ft.LayoutSizeChangeEvent[ft.Text]):
+        self.size = (event.height / self.norm_height) * self.norm_size
+        self.offset = ft.Offset(y=(event.height-self.size-8)/event.height)
+    def before_update(self):
+        character_count = len(self.value)
+        if character_count != self.prev_character_count:
+            self.prev_character_count = character_count
+            if self.min_aspect_ratio is not None and self.min_character_count is not None and self.aspect_ratio_increase is not None:
+                self.aspect_ratio = self.min_aspect_ratio + self.aspect_ratio_increase*max(0, character_count - self.min_character_count)
+class LinkedScaledText(ft.Text):
+    linked_text : ft.Text
+    def __init__(self, linked_text : ft.Text, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.linked_text = linked_text
+    def before_update(self):
+        self.size = self.linked_text.size
+
+class UnitMenuButton(ft.PopupMenuButton):
+    color : ft.Colors
+    unit_dict : dict[str, float]
+    default_unit : str | None = None
+    base_unit : str
+    current_unit : str
+    unit_text : ScaledText
+    on_update : Callable[[str | None], None] | None = None
+    def __init__(
+            self, unit_dict : dict[str, float], base_unit : str | None, default_unit : str | None,
+            on_update : Callable[[str | None], None] | None = None, norm_text_height : int = 25, norm_text_size : int = 14,
+            color : ft.Colors = ft.Colors.SECONDARY
+    ):
+        self.unit_dict = unit_dict
+        default_unit = list(unit_dict.keys())[0] if default_unit is None or default_unit not in unit_dict else default_unit
+        self.base_unit = base_unit or default_unit
+        self.default_unit = default_unit
+        self.current_unit = default_unit
+        self.color = color
+        self.on_update = on_update
+        self.unit_text = ScaledText(
+            norm_text_height, norm_text_size, f"[{self.current_unit}]",
+            weight=ft.FontWeight.BOLD, color=self.color
+        )
+        super().__init__(
+            expand_loose=True,
+            content=self.unit_text,
+            tooltip="Change unit",
+            items=[
+                ft.PopupMenuItem(
+                    content=LinkedScaledText(self.unit_text, unit, color=self.color),
+                    on_click=(lambda _, current_unit=unit: self._option_clicked(current_unit)),
+                    height=0
+                ) for unit in unit_dict.keys()
+            ],
+            popup_animation_style=ft.AnimationStyle(ft.Duration(milliseconds=200), curve=ft.AnimationCurve.EASE_OUT),
+        )
+    def _option_clicked(self, unit : str):
+        self.current_unit = unit
+        self.unit_text.value = f"[{unit}]"
+        if self.on_update is not None:
+            self.on_update(unit)
+
+class RibbonValueDisplay(ft.Row):
+    color : ft.Colors
+    value_texts : dict[str, ScaledText]
+    values_row : ft.Row
+    unit_menu : UnitMenuButton | None = None
+    decimal_count : int = 3
+    def __init__(
+            self, tooltip : str, icon_src : str, *values : tuple[str, str | float], color : ft.Colors = ft.Colors.ON_SURFACE_VARIANT,
+            unit_dict : dict[str, float] | None = None, base_unit : str | None = None, default_unit : str | None = None, decimal_count : int = 3
+    ):
+        self.color = color
+        self.decimal_count = decimal_count
+        self.values_row = ft.Row(
+            expand_loose=True,
+            spacing=4,
+            vertical_alignment=ft.CrossAxisAlignment.STRETCH
+        )
+        image = ft.Image(icon_src, anti_alias=True, color=self.color)
+        super().__init__(
+            expand_loose=True,
+            spacing=4,
+            controls=[image, self.values_row],
+            tooltip=tooltip,
+            vertical_alignment=ft.CrossAxisAlignment.STRETCH,
+            alignment=ft.Alignment.CENTER
+        )
+        self.value_texts = {}
+        if unit_dict is not None and len(unit_dict) > 0:
+            unit_menu = UnitMenuButton(unit_dict, base_unit, default_unit, on_update=self.calculate_unit)
+            self.controls.append(unit_menu)
+            self.unit_menu = unit_menu
+        for value in values:
+            self.set_value(value[0], value[1])
+    def set_value(self, label : str, value : str | float):
+        if label in self.value_texts:
+            self.value_texts[label].value = str(value)
+        else:
+            self.value_texts[label] = ScaledText(
+                25, 14, str(value),
+                color=self.color, no_wrap=True, min_aspect_ratio=1.3, aspect_ratio_increase=0.3, min_char_count=4
+            )
+            if label != "":
+                self.values_row.controls.append(ScaledText(
+                    25, 14, label,
+                    weight=ft.FontWeight.BOLD, color=self.color, expand_loose=True, text_align=ft.TextAlign.CENTER
+                ))
+            self.values_row.controls.append(self.value_texts[label])
+        value_text = self.value_texts[label]
+        if type(value) is str:
+            value_text.text_align = ft.TextAlign.CENTER
+            value_text.data = None
+        else:
+            value_text.text_align = ft.TextAlign.LEFT
+            value_text.data = value
+            self.calculate_unit_for_label(label)
+    def calculate_unit(self, unit : str | None = None):
+        for label in self.value_texts.keys():
+            self.calculate_unit_for_label(label, unit)
+    def calculate_unit_for_label(self, label : str, unit : str | None = None):
+        if label in self.value_texts and self.unit_menu is not None:
+            value_text = self.value_texts[label]
+            if unit is None:
+                unit = self.unit_menu.current_unit
+            if type(value_text.data) is float or type(value_text.data) is int:
+                val = value_text.data / self.unit_menu.unit_dict[unit]
+                if unit == self.unit_menu.base_unit:
+                    value_text.value = str(int(val))
+                else:
+                    str_float = str(round(val*(10**self.decimal_count)))
+                    value_text.value = str_float[:-self.decimal_count] + "." + str_float[-self.decimal_count:]
+class RibbonBar(ft.Container):
+    content : ft.Row
+    def __init__(self, *fields : ft.Control | None, color : ft.Colors = ft.Colors.SURFACE_CONTAINER_HIGH):
+        super().__init__(
+            bgcolor=color,
+            height=ribbon_bar_height.reference(self, "height"),
+            padding=5
+        )
+        self.content = ft.Row(
+            spacing=8
+        )
+        for field in fields:
+            if field is None:
+                self.add_separator()
+            else:
+                self.add_field(field)
+    def add_field(self, field : ft.Control):
+        self.content.controls.append(field)
+    def add_separator(self):
+        self.content.controls.append(ft.VerticalDivider())
 
 class GestureDetectorCallbacks(Enum):
     TAP = "tap"
@@ -94,6 +268,7 @@ class GestureDetectorCallbacks(Enum):
     MULTI_TAP = "multi_tap"
     PAN_CANCEL = "pat_cancel"
     PAN_START = "pan_start"
+    PAN_END = "pan_end"
     PAN_UPDATE = "pan_update"
     PAN_DOWN = "pan_down"
     RIGHT_PAN_END = "right_pan_end"
@@ -131,7 +306,10 @@ class GestureDetectorCallbacks(Enum):
     VERTICAL_DRAG_UPDATE = "vertical_drag_update"
     VERTICAL_DRAG_DOWN = "vertical_drag_down"
 class MultiGestureDetector(ft.GestureDetector):
-    callbacks : dict[GestureDetectorCallbacks, list[ft.ControlEventHandler | ft.EventHandler]] = {}
+    callbacks : dict[GestureDetectorCallbacks, list[ft.ControlEventHandler | ft.EventHandler]]
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.callbacks = {}
     def add_callback(self, callback : GestureDetectorCallbacks, callback_func : ft.ControlEventHandler | ft.EventHandler):
         if getattr(self, f"on_{callback.value}") is None:
             setattr(self, f"on_{callback.value}", lambda *args: self._internal_run_callbacks(callback, *args))
@@ -149,77 +327,8 @@ class MultiGestureDetector(ft.GestureDetector):
                 else:
                     callback_func(*args)
 
-MOUSE_BUTTON_POS_TO_ORDER = {
-    "left" : "primary",
-    "right" : "secondary",
-    "middle" : "tertiary"
-}
-class DragDetector(ft.InteractiveViewer):
-    bound_gesture_detector : MultiGestureDetector
-    mouse_controller : MouseController
-    using_mouse_buttons : list[MouseButton] = []
-    drag_enabled : bool = True
-    primary_drag_enabled : bool = False
-    secondary_drag_enabled : bool = False
-    tertiary_drag_enabled : bool = False
-    dragging : bool = False
-    dragging_button : MouseButton | None = None
-    def __init__(self, bound_gesture_detector : MultiGestureDetector, using_mouse_buttons : list[MouseButton], **kwargs):
-        super().__init__(
-            content=ft.Container(expand=True, bgcolor=ft.Colors.TRANSPARENT),
-            constrained=True,
-            expand=True,
-            interaction_update_interval=10,
-            visible=False,
-            **kwargs
-        )
-        self.bound_gesture_detector = bound_gesture_detector
-        self.mouse_controller = MouseController()
-        for button in using_mouse_buttons:
-            self.add_mouse_button(button)
-        self.on_interaction_end = self._drag_end
-        self.on_interaction_start = lambda *args: self.on_drag_start(*args)
-        self.on_interaction_update = lambda *args: self.on_drag_update(*args)
-    def add_mouse_button(self, button : MouseButton):
-        if button not in self.using_mouse_buttons:
-            button_order = MOUSE_BUTTON_POS_TO_ORDER[button.name]
-            callback_prefix = "TAP" if button == MouseButton.left else f"{button_order.upper()}_TAP"
-            setattr(self, f"{button_order}_drag_enabled", True)
-            self.bound_gesture_detector.add_callback(GestureDetectorCallbacks[f"{callback_prefix}_DOWN"], self._gesture_tap)
-            self.bound_gesture_detector.add_callback(GestureDetectorCallbacks[f"{callback_prefix}_UP"], self._gesture_tap)
-            self.bound_gesture_detector.add_callback(GestureDetectorCallbacks[f"{callback_prefix}_CANCEL"], self._gesture_tap_cancel)
-    def remove_mouse_button(self, button : MouseButton):
-        if button in self.using_mouse_buttons:
-            button_order = MOUSE_BUTTON_POS_TO_ORDER[button.name]
-            callback_prefix = "TAP" if button == MouseButton.left else f"{button_order.upper()}_TAP"
-            setattr(self, f"{button_order}_drag_enabled", False)
-            self.bound_gesture_detector.remove_callback(GestureDetectorCallbacks[f"{callback_prefix}_DOWN"], self._gesture_tap)
-            self.bound_gesture_detector.remove_callback(GestureDetectorCallbacks[f"{callback_prefix}_UP"], self._gesture_tap)
-            self.bound_gesture_detector.remove_callback(GestureDetectorCallbacks[f"{callback_prefix}_CANCEL"], self._gesture_tap_cancel)
-    def _gesture_tap(self, event : ft.TapEvent[ft.GestureDetector]):
-        self.visible = event.name.endswith("down")
-    def _gesture_tap_cancel(self, event : ft.TapEvent[ft.GestureDetector]):
-        is_tertiary = event.name.startswith("tertiary")
-        is_secondary = event.name.startswith("secondary")
-        if not self.dragging and self.drag_enabled and (
-                (self.primary_drag_enabled and not (is_secondary or is_tertiary))
-                or (is_tertiary and self.tertiary_drag_enabled)
-                or (is_secondary and self.secondary_drag_enabled)
-        ):
-            self.dragging = True
-            button = MouseButton.middle if is_tertiary else (MouseButton.right if is_secondary else MouseButton.left)
-            self.dragging_button = button
-            # trick to get the pointer event to switch from the GestureDetector to the InteractiveViewer
-            self.mouse_controller.release(button)
-            self.mouse_controller.press(button)
-    def _drag_end(self, event : ft.ScaleEndEvent[ft.InteractiveViewer]):
-        self.visible = False
-        self.dragging = False
-        self.on_drag_end(event)
-        self.dragging_button = None
-    def on_drag_start(self, event : ft.ScaleStartEvent[ft.InteractiveViewer]):
-        pass
-    def on_drag_update(self, event : ft.ScaleUpdateEvent[ft.InteractiveViewer]):
-        pass
-    def on_drag_end(self, event : ft.ScaleEndEvent[ft.InteractiveViewer]):
-        pass
+class Spacer(ft.Container):
+    def __init__(self, **container_kwargs):
+        super().__init__(**container_kwargs)
+        self.ignore_interactions = True
+        self.bgcolor = ft.Colors.TRANSPARENT
