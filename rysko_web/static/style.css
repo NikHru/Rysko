@@ -1,0 +1,205 @@
+
+
+/* ===== COLOR PALETTE ===== */
+:root {
+  --bg: #0B1220;
+  --surface: #111C2E;
+  --blue: #3B82F6;
+  --blue-hover: #2563EB;
+  --text: #F8FAFC;
+  --muted: #A7B4C8;
+  --border: #29374B;
+}
+
+/* ===== GLOBAL STYLES ===== */
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  font-family: Inter, "Segoe UI", Arial, sans-serif;
+  color: var(--text);
+
+  /* Background across the entire page */
+  background-color: var(--bg);
+  background-image:
+    linear-gradient(
+      rgba(11, 18, 32, 0.86),
+      rgba(11, 18, 32, 0.92)
+    ),
+    url("blueprint-bg.jpg");
+
+  background-size: cover;
+  background-position: center top;
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+}
+
+/* ===== NAVIGATION ===== */
+.navbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 22px 8%;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.15);
+  background: rgba(11, 18, 32, 0.45);
+}
+
+.logo {
+  color: var(--text);
+  font-size: 22px;
+  font-weight: 750;
+  text-decoration: none;
+  letter-spacing: -0.5px;
+}
+
+.navbar nav {
+  display: flex;
+  gap: 28px;
+  flex-wrap: wrap;
+}
+
+.navbar nav a {
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 14px;
+  transition: color 0.2s ease;
+}
+
+.navbar nav a:hover {
+  color: var(--text);
+}
+
+/* ===== HERO SECTION ===== */
+.hero {
+  min-height: 75vh;
+  display: flex;
+  align-items: center;
+  padding: 90px 8%;
+}
+
+.hero-content {
+  max-width: 700px;
+}
+
+.eyebrow {
+  display: inline-block;
+  color: #60A5FA;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  margin-bottom: 20px;
+}
+
+.hero h1 {
+  font-size: clamp(42px, 6vw, 76px);
+  line-height: 1.08;
+  letter-spacing: -2.5px;
+  margin: 0 0 24px;
+}
+
+.hero h1 span {
+  color: #60A5FA;
+}
+
+.hero-content > p:not(.small-text) {
+  max-width: 540px;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1.8;
+  margin-bottom: 32px;
+}
+
+/* ===== DOWNLOAD BUTTON ===== */
+.download-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 15px 25px;
+  border-radius: 8px;
+  background: var(--blue);
+  color: #FFFFFF;
+  font-weight: 650;
+  text-decoration: none;
+  transition:
+    background 0.2s ease,
+    transform 0.2s ease;
+}
+
+.download-btn:hover {
+  background: var(--blue-hover);
+  transform: translateY(-2px);
+}
+
+.download-btn:focus-visible {
+  outline: 3px solid #93C5FD;
+  outline-offset: 4px;
+}
+
+.small-text {
+  color: var(--muted);
+  font-size: 13px;
+  margin-top: 22px;
+}
+
+/* ===== LOWER PAGE SECTIONS ===== */
+.content-section {
+  padding: 75px 8%;
+  background: rgba(11, 18, 32, 0.58);
+  border-top: 1px solid var(--border);
+}
+
+.content-section:nth-of-type(even) {
+  background: rgba(17, 28, 46, 0.76);
+}
+
+.content-section h2 {
+  font-size: clamp(28px, 4vw, 42px);
+  margin-top: 0;
+}
+
+.content-section p {
+  color: var(--muted);
+  line-height: 1.8;
+}
+
+/* ===== MOBILE ===== */
+@media (max-width: 600px) {
+  .navbar {
+    padding: 18px 5%;
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .navbar nav {
+    gap: 18px;
+  }
+
+  .hero {
+    min-height: 70vh;
+    padding: 70px 5%;
+  }
+
+  .hero h1 {
+    letter-spacing: -1.5px;
+  }
+
+  .hero-content > p:not(.small-text) {
+    font-size: 16px;
+  }
+
+  .content-section {
+    padding: 55px 5%;
+  }
+
+  body {
+    background-attachment: scroll;
+  }
+}
