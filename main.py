@@ -46,7 +46,7 @@ def main(page : ft.Page):
     )
 
     # configure page
-    page.title = "Rysko"
+    page.title = "Rysko (DEMO)"
     page.window.icon = "icons/Rysko_logo.ico"
     page.fonts = {
         "Lexend" : "fonts/Lexend-VariableFont_wght.ttf"
@@ -61,11 +61,6 @@ def main(page : ft.Page):
         controls=[canvas_layer, toolbar_layer],
         expand=True
     ))
-    #page.add(ft.Column(
-    #    controls=[toolbar, canvas],
-    #    spacing=0,
-    #    expand=True
-    #))
 
 if __name__ == "__main__":
     # configure logger

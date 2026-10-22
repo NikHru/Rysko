@@ -1,15 +1,28 @@
 import flet as ft
 from flet.canvas import Canvas as BaseCanvas
 from elements import MultiGestureDetector, GestureDetectorCallbacks, RibbonValueDisplay
-from canvas_shapes import *
+from canvas_shapes import VectorShape, VectorMarker
 from weakref import WeakSet
 
-def color_shape_list(shapes : list[fcv.Shape], paint : ft.Paint):
-    for shape in shapes:
-        if isinstance(shape, (fcv.Line, fcv.Rect)):
-            shape.paint = paint
 class DrawingCanvas(BaseCanvas):
     shapes : list[VectorShape]
+    render_shapes : list[VectorShape] # shapes that are currently rendered
+    placed_shapes : list[VectorShape] # all placed shapes
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.render_shapes = self.shapes
+        self.placed_shapes = []
+    def add_shape(self, shape : VectorShape, paint : ft.Paint | None):
+        self.placed_shapes.append(shape)
+        if paint is not None and shape.real:
+            shape.apply_paint(paint)
+        for child_shape in shape.get_shape_list():
+            self.render_shapes.append(child_shape)
+    def remove_shape(self, shape : VectorShape):
+        if shape in self.placed_shapes:
+            for child_shape in shape.get_shape_list():
+                if child_shape in self.render_shapes:
+                    self.render_shapes.remove(child_shape)
 class StaticDrawingCanvas(ft.Stack):
     # Canvas layout:
     # - main stack
@@ -36,7 +49,7 @@ class StaticDrawingCanvas(ft.Stack):
         super().__init__(
             expand=True,
             clip_behavior=ft.ClipBehavior.HARD_EDGE,
-            on_size_change=(lambda event: self._size_changed(event))
+            on_size_change=(lambda *args: self._size_changed(*args))
         )
         self.gesture_detector = MultiGestureDetector()
         self.drawing_canvas = DrawingCanvas(expand=True)
@@ -55,10 +68,10 @@ class StaticDrawingCanvas(ft.Stack):
         shape.translate(0, 0)
     def add_shapes(self, shapes : list[VectorShape], preview : bool = False):
         canvas = self.preview_canvas if preview else self.drawing_canvas
-        color_shape_list(shapes, self.default_preview_paint if preview else self.default_paint)
+        paint = self.default_preview_paint if preview else self.default_paint
         for shape in shapes:
             self.translate_shape(shape)
-            canvas.shapes.append(shape)
+            canvas.add_shape(shape, paint)
     def remove_shapes(self, shapes : list[VectorShape], preview : bool = False):
         canvas = self.preview_canvas if preview else self.drawing_canvas
         for shape in shapes:
@@ -166,20 +179,20 @@ class InfiniteDrawingCanvas(DynamicDrawingCanvas): # infinitely sized canvas for
             y=-self.screen_translation_offset.y + self.canvas_y
         )
         self.shape_translation_offset = ft.Offset(
-            x=self.outside_area_size + self.screen_translation_offset.x - self.canvas_x - self.canvas_stack.left,
-            y=self.outside_area_size + self.screen_translation_offset.y - self.canvas_y - self.canvas_stack.top
+            x=self.outside_area_size + self.screen_translation_offset.x - self.canvas_x - getattr(self.canvas_stack, "left", 0),
+            y=self.outside_area_size + self.screen_translation_offset.y - self.canvas_y - getattr(self.canvas_stack, "top", 0)
         )
     def _gesture_pan_update(self, event : ft.DragUpdateEvent[ft.GestureDetector]):
         self.move_canvas(getattr(event.local_delta, "x", 0), getattr(event.local_delta, "y", 0))
     def move_canvas(self, x : float, y : float, x_is_delta : bool = True, y_is_delta : bool = True):
         # x
-        x_pos = (self.canvas_stack.left + x) if x_is_delta else x
+        x_pos = (getattr(self.canvas_stack, "left", 0) + x) if x_is_delta else x
         x_pos_wrapped = x_pos % self.outside_area_size
         self.canvas_stack.left = x_pos_wrapped
         self.canvas_stack.right = -x_pos_wrapped
         self.canvas_x -= x
         # y
-        y_pos = (self.canvas_stack.top + y) if y_is_delta else y
+        y_pos = (getattr(self.canvas_stack, "top", 0) + y) if y_is_delta else y
         y_pos_wrapped = y_pos % self.outside_area_size
         self.canvas_stack.top = y_pos_wrapped
         self.canvas_stack.bottom = -y_pos_wrapped
@@ -187,7 +200,7 @@ class InfiniteDrawingCanvas(DynamicDrawingCanvas): # infinitely sized canvas for
         # update
         self._calculate_translation_offsets()
         self.shift_shapes(x_pos - x_pos_wrapped, y_pos - y_pos_wrapped)
-        updated_canvas_pos_dict = {"x" : round(self.canvas_x), "y" : round(self.canvas_y)}
+        updated_canvas_pos_dict : dict[str, float | str] = {"x" : round(self.canvas_x), "y" : round(self.canvas_y)}
         for info_row in self.info_rows:
             info_row.value_updated("canvas_pos", updated_canvas_pos_dict)
     def shift_shapes(self, x_shift : float, y_shift : float):
@@ -201,6 +214,7 @@ class InfiniteDrawingCanvas(DynamicDrawingCanvas): # infinitely sized canvas for
 class TechnicalDrawingCanvas(InfiniteDrawingCanvas):
     BG_IMAGE_SIZE : int = 160
     pixels_per_meter = 16000 # at smallest zoom
+    origin_marker : VectorMarker | None = None
     def __init__(self):
         super().__init__(
             self.BG_IMAGE_SIZE
@@ -211,4 +225,10 @@ class TechnicalDrawingCanvas(InfiniteDrawingCanvas):
             anti_alias=True,
             color_filter=ft.ColorFilter(color=ft.Colors.ON_SECONDARY_FIXED_VARIANT, blend_mode=ft.BlendMode.MODULATE)
         )
-
+    def _size_changed(self, event : ft.LayoutSizeChangeEvent[ft.Stack]):
+        super()._size_changed(event)
+        if self.origin_marker is None:
+            origin_marker = VectorMarker(0, 0, real=False)
+            origin_marker.apply_paint(ft.Paint(ft.Colors.INVERSE_PRIMARY, stroke_width=2))
+            self.origin_marker = origin_marker
+            self.add_shapes([origin_marker])

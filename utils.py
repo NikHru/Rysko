@@ -55,4 +55,4 @@ class ValueRef[T]:
         self.value = new_value
         for obj, prop in self.references.items():
             setattr(obj, prop, self._v)
-    value : T = property(read, change)
+    value = property(read, change)

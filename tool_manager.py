@@ -154,7 +154,7 @@ class Toolbar(ft.Container):
         if self.loaded_config is not None:
             self.clear_config()
         self.loaded_config = config_str_path
-        icon_scale : float = self.height / RIBBON_BAR_ICON_NORM_SCALE_HEIGHT
+        icon_scale : int = round(getattr(self, "height", 0) / RIBBON_BAR_ICON_NORM_SCALE_HEIGHT)
         tool_idx = 0
         for tool_name in tool_list:
             if tool_name in registered_tools:

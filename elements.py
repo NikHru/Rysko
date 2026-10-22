@@ -1,7 +1,6 @@
 import flet as ft
 from typing import Callable, NoReturn
 from enum import Enum
-from inspect import iscoroutinefunction
 from utils import ValueRef
 
 DEFAULT_RIBBON_BAR_HEIGHT : int = 35
@@ -85,7 +84,7 @@ class ScaledText(ft.Text):
         self.norm_height = norm_height
         self.norm_size = norm_size
         self.on_size_change = self._size_changed
-    def _size_changed(self, event : ft.LayoutSizeChangeEvent[ft.Text]):
+    def _size_changed(self, event : ft.LayoutSizeChangeEvent[ft.LayoutControl]):
         self.size = (event.height / self.norm_height) * self.norm_size
         self.offset = ft.Offset(y=(event.height-self.size-8)/event.height)
     def before_update(self):
@@ -169,7 +168,7 @@ class RibbonValueDisplay(ft.Row):
             controls=[image, self.values_row],
             tooltip=tooltip,
             vertical_alignment=ft.CrossAxisAlignment.STRETCH,
-            alignment=ft.Alignment.CENTER
+            alignment=ft.MainAxisAlignment.CENTER
         )
         self.value_texts = {}
         if unit_dict is not None and len(unit_dict) > 0:
@@ -322,10 +321,7 @@ class MultiGestureDetector(ft.GestureDetector):
     def _internal_run_callbacks(self, callback : GestureDetectorCallbacks, *args):
         if callback in self.callbacks:
             for callback_func in self.callbacks[callback]:
-                if iscoroutinefunction(callback_func):
-                    self.page.run_task(callback_func, *args)
-                else:
-                    callback_func(*args)
+                callback_func(*args)
 
 class Spacer(ft.Container):
     def __init__(self, **container_kwargs):
