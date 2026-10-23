@@ -168,7 +168,8 @@ class Toolbar(ft.Container):
     def clear_selected_tool_preview(self):
         if self.selected_tool is not None:
             if self.selected_tool_preview_shapes is not None:
-                self.canvas.remove_shapes(self.selected_tool_preview_shapes, preview=True)
+                self.canvas.remove_shapes(self.selected_tool_preview_shapes)
+                self.selected_tool_preview_shapes.clear()
     def clear_selected_tool(self):
         if self.selected_tool is not None:
             tool_button = self.toolbar_row.controls[self.selected_tool_idx]

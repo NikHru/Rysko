@@ -5,12 +5,12 @@ class VectorShape(fcv.Shape):
     origin_x : float
     origin_y : float
     real : bool = True # wheter it gets saved, for example the canvas origin marker isnt "real"
-    def __init__(self, origin_x : float, origin_y : float, **kwargs):
+    temporary : bool = False # changes drawing mode
+    def __init__(self, origin_x : float, origin_y : float, real : bool = True, temporary : bool = False, **kwargs):
         self.origin_x = origin_x
         self.origin_y = origin_y
-        is_real : bool | None = kwargs.pop("real", None)
-        if is_real is not None:
-            self.real = is_real
+        self.real = real
+        self.temporary = temporary
         super().__init__(**kwargs)
     def shift(self, shift_x : float, shift_y : float):
         pass

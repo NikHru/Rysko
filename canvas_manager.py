@@ -8,14 +8,22 @@ class DrawingCanvas(BaseCanvas):
     shapes : list[VectorShape]
     render_shapes : list[VectorShape] # shapes that are currently rendered
     placed_shapes : list[VectorShape] # all placed shapes
+    default_paint : ft.Paint = ft.Paint(
+        color=ft.Colors.SECONDARY, stroke_width=2, style=ft.PaintingStyle.STROKE, stroke_cap=ft.StrokeCap.SQUARE
+    )
+    temporary_paint : ft.Paint = ft.Paint(
+        color=ft.Colors.PRIMARY, stroke_width=3, style=ft.PaintingStyle.STROKE, stroke_cap=ft.StrokeCap.SQUARE
+    )
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.render_shapes = self.shapes
         self.placed_shapes = []
-    def add_shape(self, shape : VectorShape, paint : ft.Paint | None):
+    def add_shape(self, shape : VectorShape):
         self.placed_shapes.append(shape)
-        if paint is not None and shape.real:
-            shape.apply_paint(paint)
+        if shape.real:
+            shape.apply_paint(self.default_paint)
+        elif shape.temporary:
+            shape.apply_paint(self.temporary_paint)
         for child_shape in shape.get_shape_list():
             self.render_shapes.append(child_shape)
     def remove_shape(self, shape : VectorShape):
@@ -29,18 +37,10 @@ class StaticDrawingCanvas(ft.Stack):
     #    - canvas stack
     #       - background
     #       - drawing canvas
-    #       - preview canvas
     #    - gesture detector
     #    - indicators, message fields, ...
-    default_paint : ft.Paint = ft.Paint(
-        color=ft.Colors.SECONDARY, stroke_width=2, style=ft.PaintingStyle.STROKE, stroke_cap=ft.StrokeCap.SQUARE
-    )
-    default_preview_paint : ft.Paint = ft.Paint(
-        color=ft.Colors.PRIMARY, stroke_width=3, style=ft.PaintingStyle.STROKE, stroke_cap=ft.StrokeCap.SQUARE
-    )
     gesture_detector : MultiGestureDetector
     drawing_canvas : DrawingCanvas
-    preview_canvas : DrawingCanvas
     canvas_bg : ft.Container
     canvas_stack : ft.Stack
     size_x : float = 0
@@ -53,11 +53,10 @@ class StaticDrawingCanvas(ft.Stack):
         )
         self.gesture_detector = MultiGestureDetector()
         self.drawing_canvas = DrawingCanvas(expand=True)
-        self.preview_canvas = DrawingCanvas(expand=True)
         self.canvas_bg = ft.Container(expand=True, bgcolor=ft.Colors.SURFACE)
         self.canvas_stack = ft.Stack(
             expand=True,
-            controls=[self.canvas_bg, self.drawing_canvas, self.preview_canvas],
+            controls=[self.canvas_bg, self.drawing_canvas],
             top=0, bottom=0, left=0, right=0
         )
         self.controls = [self.canvas_stack, self.gesture_detector]
@@ -67,16 +66,16 @@ class StaticDrawingCanvas(ft.Stack):
     def translate_shape(self, shape : VectorShape):
         shape.translate(0, 0)
     def add_shapes(self, shapes : list[VectorShape], preview : bool = False):
-        canvas = self.preview_canvas if preview else self.drawing_canvas
-        paint = self.default_preview_paint if preview else self.default_paint
         for shape in shapes:
+            if shape.real or shape.temporary:
+                shape.temporary = preview
+                shape.real = not preview
             self.translate_shape(shape)
-            canvas.add_shape(shape, paint)
-    def remove_shapes(self, shapes : list[VectorShape], preview : bool = False):
-        canvas = self.preview_canvas if preview else self.drawing_canvas
+            self.drawing_canvas.add_shape(shape)
+    def remove_shapes(self, shapes : list[VectorShape]):
         for shape in shapes:
-            if shape in canvas.shapes:
-                canvas.shapes.remove(shape)
+            if shape in self.drawing_canvas.shapes:
+                self.drawing_canvas.remove_shape(shape)
     def mouse_to_canvas_pos(self, mouse_offset : ft.Offset) -> ft.Offset:
         return mouse_offset
 class DynamicDrawingCanvas(StaticDrawingCanvas): # base for Sized and Infinite canvases that share some properties but implement them differently
@@ -207,8 +206,6 @@ class InfiniteDrawingCanvas(DynamicDrawingCanvas): # infinitely sized canvas for
         if x_shift == 0 and y_shift == 0:
             return
         for shape in self.drawing_canvas.shapes:
-            shape.shift(x_shift, y_shift)
-        for shape in self.preview_canvas.shapes:
             shape.shift(x_shift, y_shift)
 
 class TechnicalDrawingCanvas(InfiniteDrawingCanvas):
