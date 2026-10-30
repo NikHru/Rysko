@@ -3,13 +3,16 @@ import logging as loglib
 import tool_manager
 import canvas_manager
 from utils import get_appdata_path
-from elements import Spacer, ribbon_bar_height, RibbonBar
+from elements import Spacer, ribbon_bar_height, RibbonBar, RibbonControlsRow
 
 logger = loglib.getLogger("main")
 
 def main(page : ft.Page):
     # initialize submodules
     tool_manager.register_tools_from_pack("technical_drawing_tools")
+
+    # creating main ControlsRow (shows availible controls)
+    main_controls_row = RibbonControlsRow(expand=True)
 
     # creating canvas layer
     canvas = canvas_manager.TechnicalDrawingCanvas()
@@ -26,18 +29,23 @@ def main(page : ft.Page):
     )
 
     # creating toolbar layer
-    toolbar = tool_manager.Toolbar(
-        "general_toolbars/main_technical_toolbar.json",
-        canvas
+    main_toolrow = tool_manager.DrawingToolRow(
+        "{local}/technical_drawing_tools/toolrow.json",
+        canvas, main_controls_row, 
+        auto_assign_keybinds=True, expand=True, stack_close_key="`"
+    )
+    toolbar_ribbon_bar = RibbonBar(
+        main_toolrow, padding=1,
+        color=ft.Colors.SURFACE_CONTAINER_HIGHEST
     )
     info_ribbon_bar = RibbonBar(
-        ft.Text("Unsaved*\t(placeholder text)", color=ft.Colors.ON_SURFACE, expand=True),
-        None,
+        main_controls_row,
+        RibbonBar.DIVIDER,
         canvas_manager.DynamicCanvasInfoRow(canvas)
     )
     toolbar_layer = ft.Column(
         controls=[
-            toolbar,
+            toolbar_ribbon_bar,
             Spacer(expand=True),
             info_ribbon_bar
         ],

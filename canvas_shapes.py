@@ -17,9 +17,12 @@ class VectorShape(fcv.Shape):
     def translate(self, origin_offset_x : float, origin_offset_y : float):
         pass
     def apply_paint(self, paint : Paint):
-        pass
+        if getattr(self, "paint", None) is not None:
+            setattr(self, "paint", paint)
     def get_shape_list(self) -> list["VectorShape"]:
         return [self]
+
+# BASE SHAPES
 class VectorLine(VectorShape, fcv.Line):
     length_x : float
     length_y : float
@@ -41,13 +44,43 @@ class VectorLine(VectorShape, fcv.Line):
         self.x2 += shift_x
         self.y1 += shift_y
         self.y2 += shift_y
-    def apply_paint(self, paint : Paint):
-        self.paint = paint
+class VectorRect(VectorShape, fcv.Rect):
+    def __init__(self, origin_x : float, origin_y : float, **kwargs):
+        kwargs["x"] = origin_x
+        kwargs["y"] = origin_y
+        super().__init__(origin_x, origin_y, **kwargs)
+    def translate(self, origin_offset_x : float, origin_offset_y : float):
+        self.x = self.origin_x + origin_offset_x
+        self.y = self.origin_y + origin_offset_y
+    def shift(self, shift_x : float, shift_y : float):
+        self.x += shift_x
+        self.y += shift_y
+class VectorCircle(VectorShape, fcv.Circle):
+    def __init__(self, origin_x: float, origin_y: float, radius : float, **kwargs):
+        kwargs["x"] = origin_x
+        kwargs["y"] = origin_y
+        super().__init__(origin_x, origin_y, **kwargs)
+        self.radius = radius
+    def translate(self, origin_offset_x : float, origin_offset_y : float):
+        self.x = self.origin_x + origin_offset_x
+        self.y = self.origin_y + origin_offset_y
+    def shift(self, shift_x : float, shift_y : float):
+        self.x += shift_x
+        self.y += shift_y
+# COMPOSITE SHAPES
 class CompositeVectorShape(VectorLine): # Line class itself doenst actually get added to render list ever, only for flet compatibility
     shapes : list[VectorShape]
-    def __init__(self, origin_x : float, origin_y : float, shapes : list[VectorShape], **kwargs):
-        super().__init__(origin_x, origin_y, 0, 0, **kwargs)
+    _origin_x : float
+    _origin_y : float
+    def __init__(self, origin_x : float, origin_y : float, shapes : list[VectorShape], local_shapes : bool = False, **kwargs):
+        for shape in shapes:
+            if local_shapes:
+                shape.origin_x += origin_x
+                shape.origin_y += origin_y
+            setattr(shape, "_origin_offset_x", shape.origin_x - origin_x)
+            setattr(shape, "_origin_offset_y", shape.origin_y - origin_y)
         self.shapes = shapes
+        super().__init__(origin_x, origin_y, 0, 0, **kwargs)
     def shift(self, shift_x : float, shift_y : float):
         super().shift(shift_x, shift_y)
         for shape in self.shapes:
@@ -62,23 +95,26 @@ class CompositeVectorShape(VectorLine): # Line class itself doenst actually get 
             shape.apply_paint(paint)
     def get_shape_list(self) -> list[VectorShape]:
         return self.shapes
-class VectorRect(VectorShape, fcv.Rect):
-    def __init__(self, origin_x : float, origin_y : float, **kwargs):
-        kwargs["x"] = origin_x
-        kwargs["y"] = origin_y
-        super().__init__(origin_x, origin_y, **kwargs)
-    def translate(self, origin_offset_x : float, origin_offset_y : float):
-        self.x = self.origin_x + origin_offset_x
-        self.y = self.origin_y + origin_offset_y
-    def shift(self, shift_x : float, shift_y : float):
-        self.x += shift_x
-        self.y += shift_y
-    def apply_paint(self, paint : Paint):
-        self.paint = paint
+    @property
+    def origin_x(self):
+        return self._origin_x
+    @origin_x.setter
+    def origin_x(self, value : float) -> None:
+        self._origin_x = value
+        for shape in self.shapes:
+            shape.origin_x = getattr(shape, "_origin_offset_x", 0) + value
+    @property
+    def origin_y(self):
+        return self._origin_y
+    @origin_y.setter
+    def origin_y(self, value : float) -> None:
+        self._origin_y = value
+        for shape in self.shapes:
+            shape.origin_y = getattr(shape, "_origin_offset_y", 0) + value
 class VectorMarker(CompositeVectorShape):
-    size : int
-    def __init__(self, pos_x : int, pos_y : int, size : int = 16, **kwargs):
-        line1 = VectorLine(pos_x, pos_y-size/2, 0, size)
-        line2 = VectorLine(pos_x-size/2, pos_y, size, 0)
-        super().__init__(pos_x, pos_y, [line1, line2], **kwargs)
+    size : float
+    def __init__(self, origin_x : float, origin_y : float, size : float = 16, **kwargs):
+        line1 = VectorLine(origin_x, origin_y-size/2, 0, size)
+        line2 = VectorLine(origin_x-size/2, origin_y, size, 0)
+        super().__init__(origin_x, origin_y, [line1, line2], **kwargs)
         self.size = size

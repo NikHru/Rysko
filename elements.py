@@ -1,30 +1,27 @@
 import flet as ft
-from typing import Callable, NoReturn
+from typing import Callable
 from enum import Enum
-from utils import ValueRef
+from utils import NumberValueRef
 
 DEFAULT_RIBBON_BAR_HEIGHT : int = 35
-RIBBON_BAR_ICON_NORM_SCALE_HEIGHT : int = 30
-ribbon_bar_height : ValueRef[int] = ValueRef[int](DEFAULT_RIBBON_BAR_HEIGHT)
+ribbon_bar_height = NumberValueRef(DEFAULT_RIBBON_BAR_HEIGHT)
 
 class ToggleIconButton(ft.IconButton):
-    norm_color : ft.Colors = ft.Colors.TRANSPARENT
+    norm_color : ft.Colors = ft.Colors.SURFACE_CONTAINER_HIGH
     norm_icon_color : ft.Colors = ft.Colors.ON_SURFACE
     norm_hover_color : ft.Colors = ft.Colors.SECONDARY_CONTAINER
     pressed_color : ft.Colors = ft.Colors.PRIMARY_FIXED_DIM
     pressed_icon_color : ft.Colors = ft.Colors.ON_PRIMARY_FIXED_VARIANT
     pressed_hover_color : ft.Colors = ft.Colors.SECONDARY_FIXED_DIM
-    on_click_callback : Callable[[ft.Event[ft.IconButton]], NoReturn] | None = None
-    on_hover_callback : Callable[[ft.Event[ft.IconButton]], NoReturn] | None = None
+    on_click_callback : Callable[[ft.Event[ft.IconButton]], None] | None = None
+    on_hover_callback : Callable[[ft.Event[ft.IconButton]], None] | None = None
     selected : bool
     def __init__(self,
-                 on_click : Callable[[ft.Event[ft.IconButton]], NoReturn] | None = None,
-                 on_blur : Callable[[ft.Event[ft.IconButton]], NoReturn] | None = None,
-                 icon_scale : float = 1, **kwargs
+                 on_click : Callable[[ft.Event[ft.IconButton]], None] | None = None,
+                 on_blur : Callable[[ft.Event[ft.IconButton]], None] | None = None, **kwargs
     ):
         if "icon" in kwargs and isinstance(kwargs["icon"], ft.Image):
             kwargs["icon"].color=self.norm_icon_color
-            kwargs["icon"].scale=icon_scale
         super().__init__(**kwargs)
         self.selected = False
         self.on_click = self._internal_event_handle
@@ -71,11 +68,13 @@ class ScaledText(ft.Text):
     aspect_ratio_increase : float | None = None
     aspect_ratio_decrease_interval : float | None
     prev_character_count : int = 0
+    scale_div : float
     def __init__(
             self, norm_height : int, norm_size : int, *text_args, min_aspect_ratio : float | None = None, aspect_ratio_increase : float | None = None,
-            min_char_count : int | None = None, aspect_ratio_decrease_interval : float | None = None, **text_kwargs
+            min_char_count : int | None = None, aspect_ratio_decrease_interval : float | None = None, scale_div : float = 2.5, **text_kwargs
     ):
         super().__init__(*text_args, **text_kwargs)
+        self.scale_div = scale_div
         self.min_aspect_ratio = min_aspect_ratio
         self.min_character_count = min_char_count
         self.aspect_ratio_increase = aspect_ratio_increase
@@ -86,7 +85,7 @@ class ScaledText(ft.Text):
         self.on_size_change = self._size_changed
     def _size_changed(self, event : ft.LayoutSizeChangeEvent[ft.LayoutControl]):
         self.size = (event.height / self.norm_height) * self.norm_size
-        self.offset = ft.Offset(y=(event.height-self.size-8)/event.height)
+        self.offset = ft.Offset(y=(event.height-self.size)/event.height/self.scale_div)
     def before_update(self):
         character_count = len(self.value)
         if character_count != self.prev_character_count:
@@ -214,16 +213,108 @@ class RibbonValueDisplay(ft.Row):
                 else:
                     str_float = str(round(val*(10**self.decimal_count)))
                     value_text.value = str_float[:-self.decimal_count] + "." + str_float[-self.decimal_count:]
+class ControlDisplayIcon(Enum):
+    MOUSE_LEFT = "icons/mouse_left_button.png"
+    MOUSE_RIGHT = "icons/mouse_right_button.png"
+    MOUSE_MIDDLE = "icons/mouse_middle_button.png"
+    MOUSE_LEFT_DRAG = "icons/mouse_left_drag.png"
+    MOUSE_RIGHT_DRAG = "icons/mouse_right_drag.png"
+    MOUSE_RIGHT_DRAG_TO_LEFT = "icons/mouse_right_drag_to_left.png"
+    MOUSE_RIGHT_DRAG_TO_RIGHT = "icons/mouse_right_drag_to_right.png"
+class ControlDisplay(ft.Row):
+    label_text : ScaledText
+    color : ft.Colors
+    behind_color : ft.Colors
+    def __init__(
+        self, label : str, key_or_icon_list : list[str | ControlDisplayIcon | tuple[str | ControlDisplayIcon, str]],
+        visible : bool = True, color : ft.Colors = ft.Colors.ON_SURFACE_VARIANT, behind_color : ft.Colors = ft.Colors.SURFACE_CONTAINER_HIGH
+    ):
+        super().__init__(expand_loose=True, vertical_alignment=ft.CrossAxisAlignment.STRETCH, spacing=2, visible=visible)
+        self.color = color
+        self.behind_color = behind_color
+        max_i = len(key_or_icon_list)-1
+        for i, key_or_icon in enumerate(key_or_icon_list):
+            # decode keybind info
+            icon : ControlDisplayIcon | None = None
+            key_text : str | None = None
+            mod_text : str | None = None
+            if type(key_or_icon) is tuple:
+                if isinstance(key_or_icon[0], ControlDisplayIcon):
+                    icon = key_or_icon[0]
+                else:
+                    key_text = key_or_icon[0]
+                mod_text = key_or_icon[1]
+            elif isinstance(key_or_icon, ControlDisplayIcon):
+                icon = key_or_icon
+            elif type(key_or_icon) is str:
+                key_text = key_or_icon
+            # create texts and images
+            if mod_text is not None:
+                self._apend_key_text(mod_text)
+                self._append_separator_text("+")
+            if icon is not None:
+                self.controls.append(ft.Image(
+                    icon.value, anti_alias=True, fit=ft.BoxFit.FIT_HEIGHT, 
+                    expand_loose=True, color=self.color, tooltip=icon.name.replace("_", " ").capitalize()
+                ))
+            if key_text is not None:
+                self._apend_key_text(key_text)
+            if i < max_i:
+                self._append_separator_text("/")
+        self.label_text = ScaledText(
+            25, 14, label, expand_loose=True, 
+            color=self.color, italic=True
+        )
+        self.controls.append(self.label_text)
+    def _apend_key_text(self, key : str):
+        self.controls.append(ft.Container(
+            content=ScaledText(
+                20, 14, key, expand=True,
+                color=self.behind_color, weight=ft.FontWeight.BOLD, scale_div=10
+            ),
+            bgcolor=self.color,
+            margin=1,
+            padding=1.5,
+            border_radius=5
+        ))
+    def _append_separator_text(self, separator : str):
+        self.controls.append(ScaledText(
+            25, 12, separator, weight=ft.FontWeight.BOLD, color=self.color
+        ))
+class RibbonControlsRow(ft.Row):
+    control_displays : dict[str, ControlDisplay]
+    def __init__(self, expand : bool | int = True, spacing : float = 15, margin : float = 1, **kwargs) -> None:
+        kwargs["vertical_alignment"] = ft.CrossAxisAlignment.STRETCH
+        kwargs["alignment"] = ft.MainAxisAlignment.CENTER
+        super().__init__(expand=expand, spacing=spacing, margin=margin, **kwargs)
+        self.control_displays = {}
+    def add_control(self, id : str, control_display : ControlDisplay):
+        self.control_displays[id] = control_display
+        self.controls.append(control_display)
+    def remove_control(self, id : str):
+        control_display = self.control_displays.pop(id, None)
+        if control_display is not None:
+            self.controls.remove(control_display)
+    def set_control_visible(self, id : str, visible : bool):
+        if id in self.control_displays:
+            self.control_displays[id].visible = visible
+        self.update()
+
 class RibbonBar(ft.Container):
+    DIVIDER = None
     content : ft.Row
-    def __init__(self, *fields : ft.Control | None, color : ft.Colors = ft.Colors.SURFACE_CONTAINER_HIGH):
+    def __init__(
+            self, *fields : ft.Control | None, padding : int = 5,
+            color : ft.Colors = ft.Colors.SURFACE_CONTAINER_HIGH, height_offset : float = 0
+    ):
         super().__init__(
             bgcolor=color,
-            height=ribbon_bar_height.reference(self, "height"),
-            padding=5
+            height=ribbon_bar_height.reference(self, "height", height_offset),
+            padding=padding
         )
         self.content = ft.Row(
-            spacing=8
+            spacing=4,
+            vertical_alignment=ft.CrossAxisAlignment.STRETCH
         )
         for field in fields:
             if field is None:
@@ -311,16 +402,53 @@ class MultiGestureDetector(ft.GestureDetector):
         self.callbacks = {}
     def add_callback(self, callback : GestureDetectorCallbacks, callback_func : ft.ControlEventHandler | ft.EventHandler):
         if getattr(self, f"on_{callback.value}") is None:
-            setattr(self, f"on_{callback.value}", lambda *args: self._internal_run_callbacks(callback, *args))
+            setattr(self, f"on_{callback.value}", lambda *args: self.run_callbacks(callback, *args))
         if callback not in self.callbacks:
             self.callbacks[callback] = []
         self.callbacks[callback].append(callback_func)
     def remove_callback(self, callback : GestureDetectorCallbacks, callback_func : ft.ControlEventHandler | ft.EventHandler):
         if callback in self.callbacks and callback_func in self.callbacks[callback]:
             self.callbacks[callback].remove(callback_func)
-    def _internal_run_callbacks(self, callback : GestureDetectorCallbacks, *args):
+    def run_callbacks(self, callback : GestureDetectorCallbacks, *args):
         if callback in self.callbacks:
             for callback_func in self.callbacks[callback]:
+                callback_func(*args)
+
+class KeyState(Enum):
+    DOWN = 1
+    HOLD = 2
+    UP = 3
+class MultiKeyListener(ft.KeyboardListener):
+    callbacks : dict[tuple[str, KeyState] | KeyState, list[ft.EventHandler]]
+    def __init__(self, autofocus : bool, **kwargs) -> None:
+        super().__init__(
+            ft.Row(), autofocus, **kwargs
+        )
+        self.on_key_down = lambda e: self.run_callbacks(e.key, KeyState.DOWN, e)
+        self.on_key_repeat = lambda e: self.run_callbacks(e.key, KeyState.HOLD, e)
+        self.on_key_up = lambda e: self.run_callbacks(e.key, KeyState.UP, e)
+        self.callbacks = {}
+    def add_callback(self, key : str | None, key_state : KeyState, callback_func : ft.ControlEventHandler | ft.EventHandler):
+        callback = key_state
+        if key is not None:
+            callback = (key, key_state)
+        if callback not in self.callbacks:
+            self.callbacks[callback] = []
+        self.callbacks[callback].append(callback_func)
+    def remove_callback(self, key : str | None, key_state : KeyState, callback_func : ft.ControlEventHandler | ft.EventHandler):
+        callback = key_state
+        if key is not None:
+            callback = (key, key_state)
+        if callback in self.callbacks and callback_func in self.callbacks[callback]:
+            self.callbacks[callback].remove(callback_func)
+    def run_callbacks(self, key : str, key_state : KeyState, *args):
+        #print(key, key_state)
+        callback = (key, key_state)
+        if callback in self.callbacks:
+            for callback_func in self.callbacks[callback]:
+                callback_func(*args)
+        if key_state in self.callbacks:
+            for callback_func in self.callbacks[key_state]:
                 callback_func(*args)
 
 class Spacer(ft.Container):

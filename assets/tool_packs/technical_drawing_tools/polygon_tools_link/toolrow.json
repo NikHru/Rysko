@@ -1,0 +1,7 @@
+[
+    "{local}.free_rect_tool",
+    "{local}.line_rect_tool",
+    "{local}.midpoint_rect_tool",
+    "{local}.free_triangle_tool",
+    "{local}.point_polygon_tool"
+]
