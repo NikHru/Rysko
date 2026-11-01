@@ -298,7 +298,8 @@ class RibbonControlsRow(ft.Row):
     def set_control_visible(self, id : str, visible : bool):
         if id in self.control_displays:
             self.control_displays[id].visible = visible
-        self.update()
+        if self.parent is not None:
+            self.update()
 
 class RibbonBar(ft.Container):
     DIVIDER = None

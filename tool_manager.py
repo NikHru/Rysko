@@ -510,6 +510,7 @@ class DrawingToolRow(ToolRow[DrawingTool]):
     def tool_start_preview(self, preview_shapes : tuple[VectorShape, ...] | None):
         if isinstance(self.canvas, canvas_manager.DynamicDrawingCanvas):
             self.canvas.drag_unlocked = False
+        self.canvas.set_selection_enabled(False)
         self.controls_row.set_control_visible("canvas_move", False)
         self.tool_cancel_control_display.label_text.value = "Cancel Placement"
         self.controls_row.set_control_visible("tool_preview_unlock", True)
@@ -544,6 +545,7 @@ class DrawingToolRow(ToolRow[DrawingTool]):
         if self.selected_tool_preview_shapes is not None:
             self.canvas.remove_shapes(self.selected_tool_preview_shapes)
             self.selected_tool_preview_shapes = None
+        self.canvas.set_selection_enabled(True)
         self.preview_unlocked = False
         self.preview_uniform = False
         if isinstance(self.canvas, canvas_manager.DynamicDrawingCanvas):

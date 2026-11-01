@@ -1,15 +1,17 @@
 from flet.canvas import Canvas as BaseCanvas
-from elements import MultiGestureDetector, GestureDetectorCallbacks, RibbonValueDisplay, MultiKeyListener
-from canvas_shapes import VectorShape, VectorMarker
+from elements import (
+    MultiGestureDetector, GestureDetectorCallbacks, RibbonValueDisplay, KeyState,
+    MultiKeyListener, RibbonControlsRow, ControlDisplay, ControlDisplayIcon
+)
+from canvas_shapes import VectorShape, VectorMarker, VectorRect
 from weakref import WeakSet
 from enum import Enum
 from typing import TYPE_CHECKING
-from math import remainder
+from shapely import box as GeometryBox
+import shapely
 import flet as ft
-import utils
 if TYPE_CHECKING:
     from file_manager import EditingFile
-
 
 class DrawingType(Enum):
     STATIC = 1
@@ -20,16 +22,21 @@ class VectorShapeCanvas(BaseCanvas):
     shapes : list[VectorShape]
     render_shapes : list[VectorShape] # shapes that are currently rendered
     placed_shapes : list[VectorShape] # all placed shapes
+    selected_shapes : list[VectorShape]
     default_paint : ft.Paint = ft.Paint(
         color=ft.Colors.SECONDARY, stroke_width=2, style=ft.PaintingStyle.STROKE, stroke_cap=ft.StrokeCap.SQUARE
     )
     temporary_paint : ft.Paint = ft.Paint(
         color=ft.Colors.PRIMARY, stroke_width=3, style=ft.PaintingStyle.STROKE, stroke_cap=ft.StrokeCap.SQUARE
     )
+    selected_paint : ft.Paint = ft.Paint(
+        color=ft.Colors.TERTIARY_FIXED, stroke_width=3, style=ft.PaintingStyle.STROKE, stroke_cap=ft.StrokeCap.SQUARE
+    )
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.render_shapes = self.shapes
         self.placed_shapes = []
+        self.selected_shapes = []
     def add_shape(self, shape : VectorShape):
         self.placed_shapes.append(shape)
         if shape.real:
@@ -40,10 +47,22 @@ class VectorShapeCanvas(BaseCanvas):
             self.render_shapes.append(child_shape)
     def remove_shape(self, shape : VectorShape):
         if shape in self.placed_shapes:
+            self.deselect_shape(shape)
             self.placed_shapes.remove(shape)
             for child_shape in shape.get_shape_list():
                 if child_shape in self.render_shapes:
                     self.render_shapes.remove(child_shape)
+    def select_shape(self, shape : VectorShape):
+        if shape in self.placed_shapes and shape.real and not shape.temporary:
+            shape.apply_paint(self.selected_paint)
+            self.selected_shapes.append(shape)
+    def deselect_shape(self, shape : VectorShape):
+        if shape in self.selected_shapes:
+            shape.apply_paint(self.default_paint)
+            self.selected_shapes.remove(shape)
+    def deselect_all(self):
+        for _ in range(len(self.selected_shapes)):
+            self.deselect_shape(self.selected_shapes[0])
     def clear_shapes(self):
         old_placed_shapes = self.placed_shapes
         self.render_shapes = []
@@ -52,6 +71,27 @@ class VectorShapeCanvas(BaseCanvas):
         for shape in old_placed_shapes:
             if not shape.real:
                 self.add_shape(shape)
+    def get_relevant_shapes(self, area_x : float, area_y : float, area_width : float, area_height : float) -> list[VectorShape]:
+        # TODO: regioning implementation
+        relevant_shapes : list[VectorShape] = []
+        for shape in self.render_shapes:
+            if shape.geometry is not None:
+                relevant_shapes.append(shape)
+        return relevant_shapes
+    def get_intersecting_shapes(self, fully : bool, area_x : float, area_y : float, area_width : float, area_height : float) -> list[VectorShape]:
+        intersected_shapes : list[VectorShape] = []
+        area_box = GeometryBox(
+            area_x, area_y, area_x+area_width, area_y+area_height
+        )
+        shapely.prepare(area_box)
+        for shape in self.get_relevant_shapes(area_x, area_y, area_width, area_height):
+            intersects = (
+                (not fully and shapely.intersects(area_box, shape.geometry)) 
+                or shapely.within(shape.geometry, area_box)
+            )
+            if intersects:
+                intersected_shapes.append(shape)
+        return intersected_shapes
 class StaticDrawingCanvas(ft.Stack):
     """
     Canvas layout:
@@ -73,13 +113,38 @@ class StaticDrawingCanvas(ft.Stack):
     loaded : bool = False
     drawing_type : DrawingType = DrawingType.STATIC
     editing_file : "EditingFile"
-    def __init__(self, editing_file : "EditingFile"):
+    controls_row : RibbonControlsRow
+    selection_enabled : bool = True
+    selection_box_outline : VectorRect | None = None
+    selection_box : VectorRect | None = None
+    selection_is_full : bool = False
+    selection_is_additive : bool = False # TODO: handle through selection tools
+    full_selection_enabled : bool = True
+    full_selection_outline_paint : ft.Paint = ft.Paint(
+        color=ft.Colors.INVERSE_PRIMARY, stroke_cap=ft.StrokeCap.SQUARE,
+        stroke_width=3, style=ft.PaintingStyle.STROKE
+    )
+    full_selection_paint : ft.Paint = ft.Paint(
+        color=ft.Colors.with_opacity(0.2, ft.Colors.INVERSE_PRIMARY),
+        style=ft.PaintingStyle.FILL
+    )
+    partial_selection_enabled : bool = True
+    partial_selection_outline_paint : ft.Paint = ft.Paint(
+        color=ft.Colors.INVERSE_PRIMARY, stroke_cap=ft.StrokeCap.SQUARE,
+        stroke_width=3, style=ft.PaintingStyle.STROKE, stroke_dash_pattern=[25, 25]
+    )
+    partial_selection_paint : ft.Paint = ft.Paint(
+        color=ft.Colors.with_opacity(0.2, ft.Colors.INVERSE_PRIMARY),
+        style=ft.PaintingStyle.FILL
+    )
+    def __init__(self, editing_file : "EditingFile", controls_row : RibbonControlsRow):
         super().__init__(
             expand=True,
             clip_behavior=ft.ClipBehavior.HARD_EDGE,
             on_size_change=(lambda *args: self._size_changed(*args))
         )
         self.editing_file = editing_file
+        self.controls_row = controls_row
         self.gesture_detector = MultiGestureDetector(drag_interval=25, hover_interval=15)
         self.keyboard_listener = MultiKeyListener(autofocus=True)
         self.drawing_canvas = VectorShapeCanvas(expand=True)
@@ -90,6 +155,29 @@ class StaticDrawingCanvas(ft.Stack):
             top=0, bottom=0, left=0, right=0
         )
         self.controls = [self.canvas_stack, self.keyboard_listener, self.gesture_detector]
+        # events
+        self.gesture_detector.add_callback(GestureDetectorCallbacks.RIGHT_PAN_START, self._right_pan)
+        self.gesture_detector.add_callback(GestureDetectorCallbacks.RIGHT_PAN_END, self._right_pan)
+        self.gesture_detector.add_callback(GestureDetectorCallbacks.RIGHT_PAN_UPDATE, self._right_pan)
+        self.gesture_detector.add_callback(GestureDetectorCallbacks.EXIT, self._right_pan)
+        self.keyboard_listener.add_callback("Delete", KeyState.DOWN, self.remove_selected)
+        self.keyboard_listener.add_callback("Backspace", KeyState.DOWN, self.remove_selected)
+        self.keyboard_listener.add_callback("Shift Left", KeyState.DOWN, self._left_shift)
+        self.keyboard_listener.add_callback("Shift Left", KeyState.UP, self._left_shift)
+        # control displays
+        self.controls_row.add_control("canvas_delete_selection", ControlDisplay(
+            "Delete Selection", ["DEL", "BACK"], visible=False
+        ))
+        self.controls_row.add_control("canvas_selection", ControlDisplay(
+            "Selection", [ControlDisplayIcon.MOUSE_RIGHT_DRAG], visible=False
+        ))
+        self.controls_row.add_control("canvas_full_selection", ControlDisplay(
+            "Full Selection", [ControlDisplayIcon.MOUSE_RIGHT_DRAG_TO_RIGHT], visible=False
+        ))
+        self.controls_row.add_control("canvas_partial_selection", ControlDisplay(
+            "Partial Selection", [ControlDisplayIcon.MOUSE_RIGHT_DRAG_TO_LEFT], visible=False
+        ))
+        self.set_selection_enabled(None, self.full_selection_enabled, self.partial_selection_enabled)
     def _size_changed(self, event : ft.LayoutSizeChangeEvent[ft.Stack]):
         self.size_x = event.width
         self.size_y = event.height
@@ -118,10 +206,95 @@ class StaticDrawingCanvas(ft.Stack):
             self.drawing_canvas.remove_shape(shape)
         if is_modification:
             self.editing_file.set_modified()
+    def select_shapes(self, shapes : list[VectorShape] | tuple[VectorShape, ...]):
+        for shape in shapes:
+            self.drawing_canvas.select_shape(shape)
+        if len(self.drawing_canvas.selected_shapes) > 0:
+            self.controls_row.set_control_visible("canvas_delete_selection", True)
+    def deselect_shapes(self, shapes : list[VectorShape] | tuple[VectorShape, ...]):
+        for shape in shapes:
+            self.drawing_canvas.deselect_shape(shape)
+        if len(self.drawing_canvas.selected_shapes) == 0:
+            self.controls_row.set_control_visible("canvas_delete_selection", False)
+    def deselect_all(self):
+        self.drawing_canvas.deselect_all()
+        self.controls_row.set_control_visible("canvas_delete_selection", False)
+    def select(self, full : bool, area_x : float, area_y : float, area_width : float, area_height : float):
+        self.select_shapes(self.drawing_canvas.get_intersecting_shapes(
+            full, area_x, area_y, area_width, area_height
+        ))
+    def remove_selected(self, *_):
+        self.remove_shapes(self.drawing_canvas.selected_shapes[:])
+        self.controls_row.set_control_visible("canvas_delete_selection", False)
     def mouse_to_canvas_pos(self, mouse_offset : ft.Offset) -> ft.Offset:
         return mouse_offset
     def clear_canvas(self):
         self.drawing_canvas.clear_shapes()
+    def set_selection_enabled(self, selection : bool | None = None, full_selection : bool | None = None, partial_selection : bool | None = None):
+        if selection is not None:
+            self.selection_enabled = selection
+        if full_selection is not None:
+            self.full_selection_enabled = full_selection
+        if partial_selection is not None:
+            self.partial_selection_enabled = partial_selection
+        double_selection_enabled = self.full_selection_enabled and self.partial_selection_enabled and self.selection_enabled
+        any_selection_enabled = (self.full_selection_enabled or self.partial_selection_enabled) and self.selection_enabled
+        single_selection_enabled = not double_selection_enabled and any_selection_enabled
+        self.controls_row.set_control_visible("canvas_selection", single_selection_enabled)
+        self.controls_row.set_control_visible("canvas_full_selection", double_selection_enabled)
+        self.controls_row.set_control_visible("canvas_partial_selection", double_selection_enabled)
+    def _right_pan(self, event : ft.PointerEvent[ft.GestureDetector]):
+        if event.name.endswith("start") and (self.full_selection_enabled or self.partial_selection_enabled) and self.selection_enabled:
+            self.selection_is_full = not self.partial_selection_enabled
+            canvas_pos = self.mouse_to_canvas_pos(event.local_position)
+            selection_box = VectorRect(canvas_pos.x, canvas_pos.y, real=False)
+            selection_box.apply_paint(
+                self.full_selection_paint if self.selection_is_full else self.partial_selection_paint
+            )
+            selection_box_outline = VectorRect(canvas_pos.x, canvas_pos.y, real=False)
+            selection_box_outline.apply_paint(
+                self.full_selection_outline_paint if self.selection_is_full else self.partial_selection_outline_paint
+            )
+            self.selection_box = selection_box
+            self.selection_box_outline = selection_box_outline
+            self.add_shapes((selection_box, selection_box_outline))
+        elif self.selection_box is not None and self.selection_box_outline is not None:
+            if event.name.endswith("end") or event.name == "exit" or not self.selection_enabled:
+                if self.selection_box.width == 0 and self.selection_box.height == 0:
+                    self.selection_box.origin_x += 2.5
+                    self.selection_box.origin_y -= 2.5
+                    self.selection_box.width = -5
+                    self.selection_box.height = 5
+                    self.translate_shape(self.selection_box)
+                self.remove_shapes((self.selection_box, self.selection_box_outline))
+                if not self.selection_is_additive:
+                    self.deselect_all()
+                self.select(self.selection_is_full, 
+                    self.selection_box.origin_x, self.selection_box.origin_y,
+                    self.selection_box.width, self.selection_box.height
+                )
+                self.selection_box = None
+                self.selection_box_outline = None
+                self.canvas_stack.update()
+            else:
+                prev_selection_is_full = self.selection_is_full
+                canvas_pos = self.mouse_to_canvas_pos(event.local_position)
+                self.selection_box.width = canvas_pos.x - self.selection_box.origin_x
+                self.selection_box.height = canvas_pos.y - self.selection_box.origin_y
+                self.selection_box_outline.width = self.selection_box.width
+                self.selection_box_outline.height = self.selection_box.height
+                self.selection_is_full = (self.selection_box.width > 0 or not self.partial_selection_enabled)
+                self.translate_shape(self.selection_box)
+                self.translate_shape(self.selection_box_outline)
+                if prev_selection_is_full != self.selection_is_full:
+                    self.selection_box.apply_paint(
+                        self.full_selection_paint if self.selection_is_full else self.partial_selection_paint
+                    )
+                    self.selection_box_outline.apply_paint(
+                        self.full_selection_outline_paint if self.selection_is_full else self.partial_selection_outline_paint
+                    )
+    def _left_shift(self, event : ft.KeyDownEvent | ft.KeyUpEvent):
+        self.selection_is_additive = isinstance(event, ft.KeyDownEvent)
 class DynamicDrawingCanvas(StaticDrawingCanvas): # base for Sized and Infinite canvases that share some properties but implement them differently
     canvas_x : float = 0
     canvas_y : float = 0
@@ -133,8 +306,8 @@ class DynamicDrawingCanvas(StaticDrawingCanvas): # base for Sized and Infinite c
     drag_distance : float = 0
     drag_unlocked : bool = True
     drawing_type : DrawingType = DrawingType.DYNAMIC
-    def __init__(self, editing_file : "EditingFile"):
-        super().__init__(editing_file)
+    def __init__(self, editing_file : "EditingFile", controls_row : RibbonControlsRow):
+        super().__init__(editing_file, controls_row)
         self.info_rows = WeakSet()
         self.gesture_detector.add_callback(GestureDetectorCallbacks.HOVER, self._update_mouse_pos)
         self.gesture_detector.add_callback(GestureDetectorCallbacks.PAN_UPDATE, self._update_mouse_pos)
@@ -199,8 +372,8 @@ class InfiniteDrawingCanvas(DynamicDrawingCanvas): # infinitely sized canvas for
     screen_translation_offset : ft.Offset
     mouse_translation_offset : ft.Offset
     shape_translation_offset : ft.Offset
-    def __init__(self, editing_file : "EditingFile", outside_area_size : int):
-        super().__init__(editing_file)
+    def __init__(self, editing_file : "EditingFile", controls_row : RibbonControlsRow, outside_area_size : int):
+        super().__init__(editing_file, controls_row)
         self.outside_area_size = outside_area_size
         self.gesture_detector.add_callback(GestureDetectorCallbacks.PAN_START, self._gesture_pan_start)
         self.gesture_detector.add_callback(GestureDetectorCallbacks.PAN_UPDATE, self._gesture_pan_update)
@@ -296,9 +469,9 @@ class TechnicalDrawingCanvas(InfiniteDrawingCanvas):
     pixels_per_meter = 16000 # at smallest zoom
     origin_marker : VectorMarker | None = None
     drawing_type : DrawingType = DrawingType.TECHNICAL
-    def __init__(self, editing_file : "EditingFile"):
+    def __init__(self, editing_file : "EditingFile", controls_row : RibbonControlsRow):
         super().__init__(
-            editing_file,
+            editing_file, controls_row,
             self.BG_IMAGE_SIZE
         )
         self.canvas_bg.image = ft.DecorationImage(

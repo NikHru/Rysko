@@ -34,7 +34,7 @@ def main(page : ft.Page):
     main_controls_row = RibbonControlsRow(expand=True)
 
     # creating canvas layer
-    canvas = canvas_manager.TechnicalDrawingCanvas(editing_file)
+    canvas = canvas_manager.TechnicalDrawingCanvas(editing_file, main_controls_row)
     ribbon_bar_spacer = Spacer()
     ribbon_bar_spacer.height = ribbon_bar_height.reference(ribbon_bar_spacer, "height")
     canvas_layer = ft.Column(

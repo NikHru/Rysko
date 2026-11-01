@@ -1,13 +1,19 @@
 from flet import Paint
 from typing import Any
+from shapely import Geometry
+from shapely import LineString as GeometryLine
+from shapely import box as GeometryBox
+from shapely import Point as GeometryPoint
 import flet.canvas as fcv
 import json
 
 class VectorShape(fcv.Shape):
+    parent_shape : "VectorShape | None" = None
     origin_x : float
     origin_y : float
     real : bool = True # wheter it gets saved, for example the canvas origin marker isnt "real"
     temporary : bool = False # changes drawing mode
+    geometry : Geometry | None = None
     rys_shape_name : str = "SHAPE"
     rys_constructor_keys : dict[str, type] = {
         "origin_x" : float,
@@ -20,9 +26,15 @@ class VectorShape(fcv.Shape):
         self.temporary = temporary
         self.rys_constructor_keys
         super().__init__(**kwargs)
+    def recalculate_geometry(self):
+        pass
     def shift(self, shift_x : float, shift_y : float):
         pass
     def translate(self, origin_offset_x : float, origin_offset_y : float):
+        self.on_translation(origin_offset_x, origin_offset_y)
+        if not self.temporary:
+            self.recalculate_geometry()
+    def on_translation(self, origin_offset_x : float, origin_offset_y : float):
         pass
     def apply_paint(self, paint : Paint):
         if getattr(self, "paint", None) is not None:
@@ -67,7 +79,12 @@ class VectorLine(VectorShape, fcv.Line):
         super().__init__(origin_x, origin_y, **kwargs)
         self.length_x = length_x
         self.length_y = length_y
-    def translate(self, origin_offset_x : float, origin_offset_y : float):
+    def recalculate_geometry(self):
+        self.geometry = GeometryLine((
+            (self.origin_x, self.origin_y), 
+            (self.origin_x+self.length_x, self.origin_y+self.length_y)
+        ))
+    def on_translation(self, origin_offset_x : float, origin_offset_y : float):
         self.x1 = self.origin_x + origin_offset_x
         self.y1 = self.origin_y + origin_offset_y
         self.x2 = self.origin_x + self.length_x + origin_offset_x
@@ -94,7 +111,12 @@ class VectorRect(VectorShape, fcv.Rect):
         kwargs["x"] = origin_x
         kwargs["y"] = origin_y
         super().__init__(origin_x, origin_y, **kwargs)
-    def translate(self, origin_offset_x : float, origin_offset_y : float):
+    def recalculate_geometry(self):
+        self.geometry = GeometryBox(
+            self.origin_x, self.origin_y,
+            self.origin_x+self.width, self.origin_y+self.height
+        ).boundary
+    def on_translation(self, origin_offset_x : float, origin_offset_y : float):
         self.x = self.origin_x + origin_offset_x
         self.y = self.origin_y + origin_offset_y
     def shift(self, shift_x : float, shift_y : float):
@@ -117,7 +139,9 @@ class VectorCircle(VectorShape, fcv.Circle):
         kwargs["y"] = origin_y
         super().__init__(origin_x, origin_y, **kwargs)
         self.radius = radius
-    def translate(self, origin_offset_x : float, origin_offset_y : float):
+    def recalculate_geometry(self):
+        self.geometry = GeometryPoint(self.origin_x, self.origin_y).buffer(self.radius).boundary
+    def on_translation(self, origin_offset_x : float, origin_offset_y : float):
         self.x = self.origin_x + origin_offset_x
         self.y = self.origin_y + origin_offset_y
     def shift(self, shift_x : float, shift_y : float):
@@ -134,6 +158,7 @@ class CompositeVectorShape(VectorLine): # Line class itself doenst actually get 
     _origin_y : float
     def __init__(self, origin_x : float, origin_y : float, shapes : list[VectorShape], local_shapes : bool = False, **kwargs):
         for shape in shapes:
+            shape.parent_shape = self.parent_shape or self
             if local_shapes:
                 shape.origin_x += origin_x
                 shape.origin_y += origin_y
