@@ -1,0 +1,31 @@
+[
+    {
+        "name": "{local}.open_tool",
+        "key": "O",
+        "key_prefix": "Ctrl",
+        "mod_key" : "Control Left"
+    },
+    {
+        "name": "{local}.new_tool",
+        "key": "N",
+        "key_prefix": "Ctrl",
+        "mod_key" : "Control Left"
+    },
+    {
+        "name": "{local}.copy_tool",
+        "key": "N",
+        "key_prefix": "Shift",
+        "mod_key" : "Shift Left"
+    },
+    {
+        "name": "{local}.save_tool",
+        "key": "S"
+    },
+    {
+        "name": "{local}.save_as_tool",
+        "key": "S",
+        "key_prefix": "Shift",
+        "mod_key" : "Shift Left"
+    },
+    "{local}.rename_tool"
+]

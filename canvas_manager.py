@@ -1,8 +1,20 @@
-import flet as ft
 from flet.canvas import Canvas as BaseCanvas
 from elements import MultiGestureDetector, GestureDetectorCallbacks, RibbonValueDisplay, MultiKeyListener
 from canvas_shapes import VectorShape, VectorMarker
 from weakref import WeakSet
+from enum import Enum
+from typing import TYPE_CHECKING
+from math import remainder
+import flet as ft
+import utils
+if TYPE_CHECKING:
+    from file_manager import EditingFile
+
+
+class DrawingType(Enum):
+    STATIC = 1
+    DYNAMIC = 2
+    TECHNICAL = 3
 
 class VectorShapeCanvas(BaseCanvas):
     shapes : list[VectorShape]
@@ -28,9 +40,18 @@ class VectorShapeCanvas(BaseCanvas):
             self.render_shapes.append(child_shape)
     def remove_shape(self, shape : VectorShape):
         if shape in self.placed_shapes:
+            self.placed_shapes.remove(shape)
             for child_shape in shape.get_shape_list():
                 if child_shape in self.render_shapes:
                     self.render_shapes.remove(child_shape)
+    def clear_shapes(self):
+        old_placed_shapes = self.placed_shapes
+        self.render_shapes = []
+        self.shapes = self.render_shapes
+        self.placed_shapes = []
+        for shape in old_placed_shapes:
+            if not shape.real:
+                self.add_shape(shape)
 class StaticDrawingCanvas(ft.Stack):
     """
     Canvas layout:
@@ -49,13 +70,17 @@ class StaticDrawingCanvas(ft.Stack):
     canvas_stack : ft.Stack
     size_x : float = 0
     size_y : float = 0
-    def __init__(self):
+    loaded : bool = False
+    drawing_type : DrawingType = DrawingType.STATIC
+    editing_file : "EditingFile"
+    def __init__(self, editing_file : "EditingFile"):
         super().__init__(
             expand=True,
             clip_behavior=ft.ClipBehavior.HARD_EDGE,
             on_size_change=(lambda *args: self._size_changed(*args))
         )
-        self.gesture_detector = MultiGestureDetector(drag_interval=25)
+        self.editing_file = editing_file
+        self.gesture_detector = MultiGestureDetector(drag_interval=25, hover_interval=15)
         self.keyboard_listener = MultiKeyListener(autofocus=True)
         self.drawing_canvas = VectorShapeCanvas(expand=True)
         self.canvas_bg = ft.Container(expand=True, bgcolor=ft.Colors.SURFACE)
@@ -68,20 +93,35 @@ class StaticDrawingCanvas(ft.Stack):
     def _size_changed(self, event : ft.LayoutSizeChangeEvent[ft.Stack]):
         self.size_x = event.width
         self.size_y = event.height
+        if not self.loaded:
+            self.loaded = True
+            self.editing_file.load_pending(self)
     def translate_shape(self, shape : VectorShape):
         shape.translate(0, 0)
     def add_shapes(self, shapes : list[VectorShape] | tuple[VectorShape, ...], preview : bool = False):
+        is_modification = False
         for shape in shapes:
             if shape.real or shape.temporary:
                 shape.temporary = preview
                 shape.real = not preview
+            if shape.real and not shape.temporary:
+                is_modification = True
             self.translate_shape(shape)
             self.drawing_canvas.add_shape(shape)
+        if is_modification:
+            self.editing_file.set_modified()
     def remove_shapes(self, shapes : list[VectorShape] | tuple[VectorShape, ...]):
+        is_modification = False
         for shape in shapes:
+            if shape.real and not shape.temporary:
+                is_modification = True
             self.drawing_canvas.remove_shape(shape)
+        if is_modification:
+            self.editing_file.set_modified()
     def mouse_to_canvas_pos(self, mouse_offset : ft.Offset) -> ft.Offset:
         return mouse_offset
+    def clear_canvas(self):
+        self.drawing_canvas.clear_shapes()
 class DynamicDrawingCanvas(StaticDrawingCanvas): # base for Sized and Infinite canvases that share some properties but implement them differently
     canvas_x : float = 0
     canvas_y : float = 0
@@ -92,14 +132,17 @@ class DynamicDrawingCanvas(StaticDrawingCanvas): # base for Sized and Infinite c
     min_drag_distance : float = 6
     drag_distance : float = 0
     drag_unlocked : bool = True
-    def __init__(self):
-        super().__init__()
+    drawing_type : DrawingType = DrawingType.DYNAMIC
+    def __init__(self, editing_file : "EditingFile"):
+        super().__init__(editing_file)
         self.info_rows = WeakSet()
         self.gesture_detector.add_callback(GestureDetectorCallbacks.HOVER, self._update_mouse_pos)
         self.gesture_detector.add_callback(GestureDetectorCallbacks.PAN_UPDATE, self._update_mouse_pos)
         self.gesture_detector.add_callback(GestureDetectorCallbacks.RIGHT_PAN_UPDATE, self._update_mouse_pos)
         self.gesture_detector.add_callback(GestureDetectorCallbacks.ENTER, self._update_mouse_pos)
         self.gesture_detector.add_callback(GestureDetectorCallbacks.EXIT, self._update_mouse_pos)
+    def move_canvas(self, x : float, y : float, x_is_delta : bool = True, y_is_delta : bool = True):
+        pass
     def _size_changed(self, event : ft.LayoutSizeChangeEvent[ft.Stack]):
         super()._size_changed(event)
         self._update_mouse_pos(None)
@@ -156,8 +199,8 @@ class InfiniteDrawingCanvas(DynamicDrawingCanvas): # infinitely sized canvas for
     screen_translation_offset : ft.Offset
     mouse_translation_offset : ft.Offset
     shape_translation_offset : ft.Offset
-    def __init__(self, outside_area_size : int):
-        super().__init__()
+    def __init__(self, editing_file : "EditingFile", outside_area_size : int):
+        super().__init__(editing_file)
         self.outside_area_size = outside_area_size
         self.gesture_detector.add_callback(GestureDetectorCallbacks.PAN_START, self._gesture_pan_start)
         self.gesture_detector.add_callback(GestureDetectorCallbacks.PAN_UPDATE, self._gesture_pan_update)
@@ -170,7 +213,7 @@ class InfiniteDrawingCanvas(DynamicDrawingCanvas): # infinitely sized canvas for
     def _size_changed(self, event : ft.LayoutSizeChangeEvent[ft.Stack]):
         self.screen_translation_offset = ft.Offset(event.width/2, event.height/2)
         self._calculate_translation_offsets()
-        if self.size_x != 0 and self.size_y != 0:
+        if self.loaded:
             # division by half because the bg image grows / shrinks in both directions equally
             self.shift_shapes((event.width - self.size_x)/2, (event.height - self.size_y)/2)
         super()._size_changed(event)
@@ -212,21 +255,27 @@ class InfiniteDrawingCanvas(DynamicDrawingCanvas): # infinitely sized canvas for
             self._send_tap_signal_from_drag(event)
         self.drag_distance = 0
     def move_canvas(self, x : float, y : float, x_is_delta : bool = True, y_is_delta : bool = True):
+        self.editing_file.set_modified()
         # x
-        x_pos = (getattr(self.canvas_stack, "left", 0) + x) if x_is_delta else x
+        x_move = x if x_is_delta else (self.canvas_x - x)
+        x_pos = getattr(self.canvas_stack, "left", 0) + x_move
         x_pos_wrapped = x_pos % self.outside_area_size
         self.canvas_stack.left = x_pos_wrapped
         self.canvas_stack.right = -x_pos_wrapped
-        self.canvas_x -= x
+        x_shift = x_pos - x_pos_wrapped
+        self.canvas_x -= x_move
         # y
-        y_pos = (getattr(self.canvas_stack, "top", 0) + y) if y_is_delta else y
+        y_move = y if y_is_delta else (self.canvas_y - y)
+        y_pos = getattr(self.canvas_stack, "top", 0) + y_move
         y_pos_wrapped = y_pos % self.outside_area_size
         self.canvas_stack.top = y_pos_wrapped
+        y_shift = y_pos - y_pos_wrapped
         self.canvas_stack.bottom = -y_pos_wrapped
-        self.canvas_y -= y
+        self.canvas_y -= y_move
         # update
         self._calculate_translation_offsets()
-        self.shift_shapes(x_pos - x_pos_wrapped, y_pos - y_pos_wrapped)
+
+        self.shift_shapes(x_shift, y_shift)
         updated_canvas_pos_dict : dict[str, float | str] = {"x" : round(self.canvas_x), "y" : round(self.canvas_y)}
         for info_row in self.info_rows:
             info_row.value_updated("canvas_pos", updated_canvas_pos_dict)
@@ -235,13 +284,21 @@ class InfiniteDrawingCanvas(DynamicDrawingCanvas): # infinitely sized canvas for
             return
         for shape in self.drawing_canvas.shapes:
             shape.shift(x_shift, y_shift)
+    def clear_canvas(self):
+        super().clear_canvas()
+        self.move_canvas(0, 0, False, False)
+        self.canvas_stack.update()
+        for info_row in self.info_rows:
+            info_row.update()
 
 class TechnicalDrawingCanvas(InfiniteDrawingCanvas):
     BG_IMAGE_SIZE : int = 160
     pixels_per_meter = 16000 # at smallest zoom
     origin_marker : VectorMarker | None = None
-    def __init__(self):
+    drawing_type : DrawingType = DrawingType.TECHNICAL
+    def __init__(self, editing_file : "EditingFile"):
         super().__init__(
+            editing_file,
             self.BG_IMAGE_SIZE
         )
         self.canvas_bg.image = ft.DecorationImage(

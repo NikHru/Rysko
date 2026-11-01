@@ -303,9 +303,12 @@ class RibbonControlsRow(ft.Row):
 class RibbonBar(ft.Container):
     DIVIDER = None
     content : ft.Row
+    divider_color : ft.Colors
     def __init__(
             self, *fields : ft.Control | None, padding : int = 5,
-            color : ft.Colors = ft.Colors.SURFACE_CONTAINER_HIGH, height_offset : float = 0
+            color : ft.Colors = ft.Colors.SURFACE_CONTAINER_HIGH, 
+            divider_color : ft.Colors = ft.Colors.ON_SECONDARY_FIXED_VARIANT, 
+            height_offset : float = 0
     ):
         super().__init__(
             bgcolor=color,
@@ -316,6 +319,7 @@ class RibbonBar(ft.Container):
             spacing=4,
             vertical_alignment=ft.CrossAxisAlignment.STRETCH
         )
+        self.divider_color = divider_color
         for field in fields:
             if field is None:
                 self.add_separator()
@@ -324,7 +328,10 @@ class RibbonBar(ft.Container):
     def add_field(self, field : ft.Control):
         self.content.controls.append(field)
     def add_separator(self):
-        self.content.controls.append(ft.VerticalDivider())
+        self.content.controls.append(ft.VerticalDivider(
+            color=self.divider_color,
+            thickness=2
+        ))
 
 class GestureDetectorCallbacks(Enum):
     TAP = "tap"

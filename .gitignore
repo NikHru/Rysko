@@ -1,5 +1,6 @@
 .flet
 rysko.log
+logs
 colors_dev.py
 __pycache__
 build

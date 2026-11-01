@@ -12,10 +12,10 @@ def get_assets_path() -> pathlib.Path:
         pathlib.Path(__file__).parent / "assets"
     ))
 
-def get_appdata_path(subdirectory : str | None = None) -> pathlib.Path:
-    if not getattr(sys, "frozen", False):
-        return pathlib.Path(__file__).parent
-    if sys.platform == "win32":
+def get_appdata_path(subdirectory : str | None = None, use_local_if_unpacked : bool = False) -> pathlib.Path:
+    if not getattr(sys, "frozen", False) and use_local_if_unpacked:
+        appdata_dir = pathlib.Path(__file__).parent
+    elif sys.platform == "win32":
         appdata_dir = pathlib.Path(os.environ["LOCALAPPDATA"]) / "Rysko"
     else:
         appdata_dir = pathlib.Path.home() / ".local" / "state" / "Rysko"
@@ -24,9 +24,11 @@ def get_appdata_path(subdirectory : str | None = None) -> pathlib.Path:
     appdata_dir.resolve()
     appdata_dir.mkdir(parents=True, exist_ok=True)
     return appdata_dir
-
-def filename(filepath : pathlib.Path) -> str:
-    return filepath.name.split(".")[0]
+def update_exe_path():
+    if getattr(sys, "frozen", False):
+        file_path = get_appdata_path() / "exe_path.txt"
+        with open(file_path, "w") as f:
+            f.write(sys.executable)
 
 def icon_src_to_image(src : ft.IconData | str, **image_kwargs) -> ft.Image | ft.IconData:
     if isinstance(src, ft.IconData):

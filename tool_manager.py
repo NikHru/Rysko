@@ -5,6 +5,7 @@ import utils
 import json
 import importlib
 import canvas_manager
+import file_manager
 import pynput
 from enum import Enum
 from elements import (
@@ -65,6 +66,7 @@ class FinalizedShapes:
 class ToolrowTool:
     name : str
     icon_src : ft.IconData | str
+    toggle : bool = True
     def __init__(self):
         pass
     def discard(self):
@@ -80,6 +82,10 @@ class ToolrowLinkTool[ToolType : ToolrowTool](ToolrowTool):
             self.config_path, toolrow, auto_assign_keybinds,
             auto_keybind_mod_key, auto_keybind_prefix, local_path=self.local_path
         )
+class FileTool(ToolrowTool):
+    toggle : bool = False
+    async def run(self, canvas : canvas_manager.StaticDrawingCanvas, editing_file : file_manager.EditingFile):
+        pass
 class CanvasTool(ToolrowTool):
     def click(self, canvas_coords : CanvasCoords):
         pass
@@ -290,8 +296,8 @@ class ToolRow[ToolType : ToolrowTool](ft.Row):
         stack_close_mod_key : str | None = None, **kwargs
     ):
         kwargs["vertical_alignment"] = ft.CrossAxisAlignment.STRETCH
-        kwargs["spacing"] = 20
-        kwargs["margin"] = 2
+        kwargs["spacing"] = 15
+        kwargs["margin"] = -2
         super().__init__(**kwargs)
         self.tool_type = tool_type
         self._pressed_keys = []
@@ -373,8 +379,11 @@ class ToolRow[ToolType : ToolrowTool](ft.Row):
                     self.apply_loaded(tool_class)
                 elif issubclass(tool_class, self.tool_type):
                     self.selected_tool_indexes[tool_button.tool_group] = tool_idx
-                    self.selected_tools[tool_idx] = tool_class()
+                    tool = tool_class()
+                    self.selected_tools[tool_idx] = tool
                     self.on_tool_selected(tool_idx)
+                    if not tool.toggle:
+                        self.clear_tool(tool_button.tool_group)
     def on_tool_selected(self, tool_idx : int):
         pass
     def clear_tool(self, group : str | int):
@@ -599,11 +608,28 @@ class DrawingToolRow(ToolRow[DrawingTool]):
             if selected_tool.uniform_tooltip is not None:
                 self.tool_set_uniform(selected_tool, self._control_is_pressed)
 
+class FileToolRow(ToolRow[FileTool]):
+    editing_file : file_manager.EditingFile
+    def __init__(
+        self, config_str_path : str, canvas : canvas_manager.StaticDrawingCanvas, controls_row : RibbonControlsRow,
+        editing_file : file_manager.EditingFile,
+        auto_assign_keybinds : bool = False, auto_keybind_prefix : str = "", auto_keybind_mod_key : str | None = None, 
+        stack_close_key : str = "", stack_close_key_prefix : str = "", stack_close_mod_key : str | None = None, **kwargs
+    ):
+        super().__init__(FileTool,
+            config_str_path, canvas, controls_row, auto_assign_keybinds,
+            auto_keybind_prefix, auto_keybind_mod_key, stack_close_key,
+            stack_close_key_prefix, stack_close_mod_key, **kwargs
+        )
+        self.editing_file = editing_file
+    def on_tool_selected(self, tool_idx: int):
+        self.page.run_task(self.selected_tools[tool_idx].run, self.canvas, self.editing_file)
+
 def get_tool_assets_path(tool_file_path_str : str) -> pathlib.Path:
     file_path = pathlib.Path(tool_file_path_str)
-    return utils.get_assets_path() / "tool_packs" / file_path.parent.name / utils.filename(file_path)
+    return utils.get_assets_path() / "tool_packs" / file_path.parent.name / file_path.stem
 def get_tool_assets_local_path(tool_file_path_str : str) -> str:
     file_path = pathlib.Path(tool_file_path_str)
-    return f"tool_packs/{file_path.parent.name}/{utils.filename(file_path)}"
+    return f"tool_packs/{file_path.parent.name}/{file_path.stem}"
 def get_tool_icon_src(tool_file_path_str : str) -> str:
     return get_tool_assets_local_path(tool_file_path_str) + "/icon.png"

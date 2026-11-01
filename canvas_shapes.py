@@ -1,16 +1,24 @@
+from flet import Paint
+from typing import Any
 import flet.canvas as fcv
-from flet import Paint, LayoutControl
+import json
 
 class VectorShape(fcv.Shape):
     origin_x : float
     origin_y : float
     real : bool = True # wheter it gets saved, for example the canvas origin marker isnt "real"
     temporary : bool = False # changes drawing mode
+    rys_shape_name : str = "SHAPE"
+    rys_constructor_keys : dict[str, type] = {
+        "origin_x" : float,
+        "origin_y" : float
+    }
     def __init__(self, origin_x : float, origin_y : float, real : bool = True, temporary : bool = False, **kwargs):
         self.origin_x = origin_x
         self.origin_y = origin_y
         self.real = real
         self.temporary = temporary
+        self.rys_constructor_keys
         super().__init__(**kwargs)
     def shift(self, shift_x : float, shift_y : float):
         pass
@@ -21,11 +29,36 @@ class VectorShape(fcv.Shape):
             setattr(self, "paint", paint)
     def get_shape_list(self) -> list["VectorShape"]:
         return [self]
+    def get_rys_json_dict(self) -> dict[str, Any]:
+        return {"origin_x" : self.origin_x, "origin_y" : self.origin_y}
+    def encode_to_rys(self) -> str:
+        json_str = json.dumps(
+            self.get_rys_json_dict(),
+            indent=None
+        )
+        return f"{self.rys_shape_name}:{json_str}"
+    @classmethod
+    def decode_from_rys[T : "VectorShape"](cls : type[T], json_str : str) -> T:
+        json_data = json.loads(json_str)
+        constructor_dict = {}
+        for key, valid_type in cls.rys_constructor_keys.items():
+            if key in json_data and type(json_data[key]) is valid_type:
+                constructor_dict[key] = json_data[key]
+            else:
+                raise ValueError(f"Invalid JSON data, missing or invalid key \"{key}\" (valid type {valid_type})")
+        return cls(**constructor_dict)
 
 # BASE SHAPES
 class VectorLine(VectorShape, fcv.Line):
     length_x : float
     length_y : float
+    rys_shape_name : str = "LINE"
+    rys_constructor_keys : dict[str, type] = {
+        "origin_x" : float,
+        "origin_y" : float,
+        "length_x" : float,
+        "length_y" : float
+    }
     def __init__(self, origin_x : float, origin_y : float, length_x : float, length_y : float, **kwargs):
         kwargs["x1"] = origin_x
         kwargs["y1"] = origin_y
@@ -44,7 +77,19 @@ class VectorLine(VectorShape, fcv.Line):
         self.x2 += shift_x
         self.y1 += shift_y
         self.y2 += shift_y
+    def get_rys_json_dict(self) -> dict[str, Any]:
+        base = super().get_rys_json_dict()
+        base["length_x"] = self.length_x
+        base["length_y"] = self.length_y
+        return base
 class VectorRect(VectorShape, fcv.Rect):
+    rys_shape_name : str = "RECT"
+    rys_constructor_keys : dict[str, type] = {
+        "origin_x" : float,
+        "origin_y" : float,
+        "width" : float,
+        "height" : float
+    }
     def __init__(self, origin_x : float, origin_y : float, **kwargs):
         kwargs["x"] = origin_x
         kwargs["y"] = origin_y
@@ -55,7 +100,18 @@ class VectorRect(VectorShape, fcv.Rect):
     def shift(self, shift_x : float, shift_y : float):
         self.x += shift_x
         self.y += shift_y
+    def get_rys_json_dict(self) -> dict[str, Any]:
+        base = super().get_rys_json_dict()
+        base["width"] = self.width
+        base["height"] = self.height
+        return base 
 class VectorCircle(VectorShape, fcv.Circle):
+    rys_shape_name : str = "CIRCLE"
+    rys_constructor_keys : dict[str, type] = {
+        "origin_x" : float,
+        "origin_y" : float,
+        "radius" : float
+    }
     def __init__(self, origin_x: float, origin_y: float, radius : float, **kwargs):
         kwargs["x"] = origin_x
         kwargs["y"] = origin_y
@@ -67,6 +123,10 @@ class VectorCircle(VectorShape, fcv.Circle):
     def shift(self, shift_x : float, shift_y : float):
         self.x += shift_x
         self.y += shift_y
+    def get_rys_json_dict(self) -> dict[str, Any]:
+        base = super().get_rys_json_dict()
+        base["radius"] = self.radius
+        return base
 # COMPOSITE SHAPES
 class CompositeVectorShape(VectorLine): # Line class itself doenst actually get added to render list ever, only for flet compatibility
     shapes : list[VectorShape]
@@ -113,8 +173,26 @@ class CompositeVectorShape(VectorLine): # Line class itself doenst actually get 
             shape.origin_y = getattr(shape, "_origin_offset_y", 0) + value
 class VectorMarker(CompositeVectorShape):
     size : float
+    rys_shape_name : str = "MARKER"
+    rys_constructor_keys : dict[str, type] = {
+        "origin_x" : float,
+        "origin_y" : float,
+        "size" : float
+    }
     def __init__(self, origin_x : float, origin_y : float, size : float = 16, **kwargs):
         line1 = VectorLine(origin_x, origin_y-size/2, 0, size)
         line2 = VectorLine(origin_x-size/2, origin_y, size, 0)
         super().__init__(origin_x, origin_y, [line1, line2], **kwargs)
         self.size = size
+    def get_rys_json_dict(self) -> dict[str, Any]:
+        base = super().get_rys_json_dict()
+        base["size"] = self.size
+        return base
+
+RYS_NAME_TO_SHAPE : dict[str, type[VectorShape]] = {
+    "SHAPE" : VectorShape,
+    "LINE" : VectorLine,
+    "RECT" : VectorRect,
+    "CIRCLE" : VectorCircle,
+    "MARKER" : VectorMarker
+}
