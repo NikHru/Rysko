@@ -35,6 +35,6 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    version='C:/Users/hrusk/AppData/Local/Temp/85225e6d-20a6-480c-beee-f1d01d571c96',
+    version='C:/Users/hrusk/AppData/Local/Temp/40cb01d4-c795-42b8-9165-197c1cfa8553',
     icon=['assets/icons/Rysko_logo.ico'],
 )
