@@ -6,16 +6,11 @@ app = Flask(__name__)
 def index():
     return render_template("index.html")
 
-@app.route("/comments")
+@app.route("/features")
 def comments():
-    return render_template("comments.html")
-
-@app.route("/try")
-def notebook():
-    return render_template("try.html")
-
+    return render_template("features.html")
 
 #alebo "flask --app main run"
-#                                 --debug
+#   flask --app main run      --debug
 if __name__ == "__main__":
     app.run(debug=True)
