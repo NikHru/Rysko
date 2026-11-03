@@ -54,14 +54,24 @@ body {
   -webkit-backdrop-filter: blur(10px);
 }
 
+/* ===== LOGO ===== */
 .logo {
   display: flex;
   align-items: center;
+  gap: 10px;
   color: var(--text);
   font-size: 22px;
   font-weight: 750;
   text-decoration: none;
   letter-spacing: -0.5px;
+}
+
+.logo img {
+  width: 42px;
+  height: 42px;
+  object-fit: contain;
+  border-radius: 8px;
+  flex-shrink: 0;
 }
 
 .logo span {
@@ -96,12 +106,12 @@ body {
 
 /* ===== HERO SECTION ===== */
 .hero {
-  min-height: 75vh;
+  min-height: calc(100vh - 62px);
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 60px;
-  padding: 90px 8%;
+  padding: 100px 8% 120px;
 }
 
 .hero-content {
@@ -141,10 +151,23 @@ body {
 .hero-image {
   flex: 1 1 62%;
   display: flex;
-  justify-content: flex-end;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 25px;
 }
 
-.hero-image img {
+.hero-logo {
+  display: block;
+  width: 190px;
+  height: 190px;
+  object-fit: contain;
+  border: none !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+}
+
+.hero-screenshot {
   display: block;
   width: 100%;
   max-width: 900px;
