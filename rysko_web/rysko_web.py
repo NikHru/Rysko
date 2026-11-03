@@ -10,6 +10,10 @@ def index():
 def comments():
     return render_template("features.html")
 
+@app.route("/firma")
+def firma():
+    return render_template("firma.html")
+
 #alebo "flask --app main run"
 #   flask --app main run      --debug
 if __name__ == "__main__":
