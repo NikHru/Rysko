@@ -5,7 +5,7 @@ import canvas_manager
 import file_manager
 import sys
 from utils import get_appdata_path, update_exe_path
-from elements import Spacer, ribbon_bar_height, RibbonBar, RibbonControlsRow
+from elements import Spacer, ribbon_bar_height, RibbonBar, RibbonControlsRow, RibbonMenuBar
 
 logger = loglib.getLogger("main")
 
@@ -36,9 +36,11 @@ def main(page : ft.Page):
     # creating canvas layer
     canvas = canvas_manager.TechnicalDrawingCanvas(editing_file, main_controls_row)
     ribbon_bar_spacer = Spacer()
+    menu_bar_spacer = Spacer()
     ribbon_bar_spacer.height = ribbon_bar_height.reference(ribbon_bar_spacer, "height")
     canvas_layer = ft.Column(
         controls=[
+            menu_bar_spacer,
             ribbon_bar_spacer,
             canvas,
             ribbon_bar_spacer
@@ -48,14 +50,18 @@ def main(page : ft.Page):
     )
 
     # creating toolbar layer
+    file_toolrow = tool_manager.FileToolRow(
+        "{local}/file_tools/toolrow.json",
+        canvas, main_controls_row, editing_file, expand=1
+    )
     drawing_toolrow = tool_manager.DrawingToolRow(
         "{local}/technical_drawing_tools/toolrow.json",
         canvas, main_controls_row, 
         auto_assign_keybinds=True, stack_close_key="`", expand=2
     )
-    file_toolrow = tool_manager.FileToolRow(
-        "{local}/file_tools/toolrow.json",
-        canvas, main_controls_row, editing_file, expand=1
+    menu_bar = RibbonMenuBar(
+        file_toolrow.get_submenu_button("File"), 
+        drawing_toolrow.get_submenu_button("Drawing")
     )
     toolbar_ribbon_bar = RibbonBar(
         Spacer(width=3),
@@ -72,6 +78,7 @@ def main(page : ft.Page):
     )
     toolbar_layer = ft.Column(
         controls=[
+            menu_bar,
             toolbar_ribbon_bar,
             Spacer(expand=True),
             info_ribbon_bar

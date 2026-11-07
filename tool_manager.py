@@ -10,7 +10,7 @@ import pynput
 from enum import Enum
 from elements import (
     ToggleIconButton, GestureDetectorCallbacks, KeyState, RibbonControlsRow,
-    ControlDisplay, ControlDisplayIcon, ScaledText
+    ControlDisplay, ControlDisplayIcon, ScaledText, RibbonSubmenuButton, RibbonMenuItemButton
 )
 from canvas_shapes import VectorShape
 from utils import read_dict
@@ -111,6 +111,7 @@ class DrawingTool(CanvasTool):
 class ToolButton(ft.Row):
     tool_idx : int
     tool_group : str | int
+    tooltip : str
     parent_toolbar : "ToolRow"
     button : ToggleIconButton
     key_text : ScaledText
@@ -270,6 +271,17 @@ class LoadedToolData[ToolType : ToolrowTool]:
                     logger.warning(f"Tool \"{tool_name}\" is not a {self.toolrow.tool_type}, index {i} in parent config: {config_path}")
             else:
                 logger.warning(f"No tool under the name \"{tool_name}\" is registered, index {i} in parent config: {config_path}")
+    def get_submenu_button(self, title : str) -> RibbonSubmenuButton:
+        root_button = RibbonSubmenuButton(title)
+        for tool_button in self.buttons:
+            tool_class = self.classes[tool_button.tool_idx]
+            if isinstance(tool_class, ToolrowLinkTool):
+                root_button.controls.append(tool_class.tool_data.get_submenu_button(tool_button.tooltip))
+            else:
+                root_button.controls.append(RibbonMenuItemButton(
+                    tool_button.tooltip
+                ))
+        return root_button
 class ToolRow[ToolType : ToolrowTool](ft.Row):
     tool_type : type[ToolType]
     loaded_stack : list[ToolrowLinkTool[ToolType] | LoadedToolData[ToolType]]
@@ -366,6 +378,11 @@ class ToolRow[ToolType : ToolrowTool](ft.Row):
             self.controls.append(button)
         if self.parent is not None:
             self.update()
+    def get_submenu_button(self, title : str) -> RibbonSubmenuButton:
+        first_loaded: LoadedToolData[ToolType] = self.loaded
+        if isinstance(self.loaded_stack[0], LoadedToolData): # check needed because of variable type
+            first_loaded = self.loaded_stack[0]
+        return first_loaded.get_submenu_button(title)
     def select_tool(self, tool_idx : int, reselect : bool = False):
         if -1 < tool_idx < len(self.loaded.classes):
             tool_button = self.loaded.buttons[tool_idx]

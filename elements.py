@@ -1,5 +1,5 @@
 import flet as ft
-from typing import Callable
+from typing import Any, Callable
 from enum import Enum
 from utils import NumberValueRef
 
@@ -333,6 +333,28 @@ class RibbonBar(ft.Container):
             color=self.divider_color,
             thickness=2
         ))
+class RibbonMenuItemButton(ft.MenuItemButton):
+    def __init__(self, *args, **kwargs) -> None:
+        kwargs["height"] = 0
+        super().__init__(*args, **kwargs)
+class RibbonSubmenuButton(ft.SubmenuButton):
+    pass
+class RibbonMenuBar(RibbonBar):
+    menu_bar : ft.MenuBar
+    def __init__(
+            self, *buttons: ft.SubmenuButton | None,
+            color: ft.Colors = ft.Colors.SURFACE_CONTAINER_HIGH
+        ):
+        self.menu_bar = ft.MenuBar(
+            expand=True,
+            style=ft.MenuStyle(
+                shape=ft.BeveledRectangleBorder(side=ft.BorderSide(color=color))
+            )
+        )
+        super().__init__(*buttons, padding=0, color=color, height_offset=-15)
+        self.content.controls.append(self.menu_bar)
+    def add_field(self, button: ft.SubmenuButton):
+        self.menu_bar.controls.append(button)
 
 class GestureDetectorCallbacks(Enum):
     TAP = "tap"
